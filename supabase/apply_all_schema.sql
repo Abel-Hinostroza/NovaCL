@@ -1,0 +1,1426 @@
+-- ============================================================================
+-- 0001 · Foundation: extensiones, esquema de utilidades y tipos enumerados
+-- ============================================================================
+
+create extension if not exists "pgcrypto";      -- gen_random_uuid, crypt
+create extension if not exists "citext";         -- emails case-insensitive
+create extension if not exists "pg_trgm";        -- busqueda por similitud
+
+-- Esquema privado para helpers de autorizacion (no expuesto por la API)
+create schema if not exists app;
+
+-- ─────────────────────────────────────────────────────────────
+-- Tipos enumerados del dominio
+-- ─────────────────────────────────────────────────────────────
+
+-- Roles del sistema. Se manejan por sede via memberships.
+create type app.role as enum (
+  'org_admin',      -- administrador de la organizacion (todas las sedes)
+  'sede_admin',     -- administrador de una sede
+  'recepcion',      -- registro de pacientes y ordenes
+  'toma_muestra',   -- flebotomia / recoleccion de muestras
+  'analista',       -- ingreso de resultados
+  'validador',      -- validacion / firma de resultados (patologo/bioquimico)
+  'facturacion',    -- facturacion e integracion Wally
+  'medico',         -- medico solicitante (lectura de resultados)
+  'lectura'         -- solo lectura / auditoria
+);
+
+create type app.order_status as enum (
+  'registrada',     -- creada en recepcion
+  'en_toma',        -- en proceso de toma de muestra
+  'en_proceso',     -- muestras en laboratorio
+  'parcial',        -- algunos resultados listos
+  'completada',     -- todos los resultados validados
+  'entregada',      -- entregada al paciente
+  'anulada'
+);
+
+create type app.order_priority as enum ('rutina', 'urgente', 'stat');
+
+create type app.item_status as enum (
+  'pendiente',
+  'en_proceso',
+  'resultado_cargado',
+  'validado',
+  'rechazado',
+  'anulado'
+);
+
+create type app.sample_status as enum (
+  'pendiente',      -- por tomar
+  'tomada',         -- recolectada
+  'en_transito',    -- enviada a la sede procesadora
+  'recibida',       -- recibida en laboratorio
+  'en_analisis',
+  'procesada',
+  'rechazada'       -- muestra no apta (hemolisis, coagulo, etc.)
+);
+
+create type app.result_status as enum (
+  'pendiente',
+  'preliminar',
+  'validado',
+  'rechazado',
+  'corregido'
+);
+
+create type app.result_flag as enum (
+  'normal',
+  'bajo',
+  'alto',
+  'critico_bajo',
+  'critico_alto',
+  'anormal'          -- cualitativo fuera de referencia
+);
+
+create type app.value_type as enum ('numerico', 'texto', 'opcion', 'titulo');
+
+create type app.sex as enum ('M', 'F', 'otro', 'desconocido');
+
+create type app.delivery_channel as enum ('portal', 'email', 'sms', 'whatsapp', 'impreso');
+create type app.delivery_status as enum ('pendiente', 'enviado', 'visto', 'fallido');
+
+create type app.invoice_status as enum (
+  'borrador', 'emitida', 'pagada', 'anulada', 'error_sync'
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- Utilidad: touch updated_at
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+-- ============================================================================
+-- 0002 · Multi-tenancy y control de acceso basado en roles (RBAC)
+--   organization (cliente/clinica) -> sedes -> memberships por sede
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Organizacion = tenant (cada clinica que usa el sistema)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_organizations" (
+  id            uuid primary key default gen_random_uuid(),
+  slug          citext not null unique,
+  nombre        text not null,
+  ruc           text,                     -- identificacion fiscal
+  logo_url      text,
+  timezone      text not null default 'America/Lima',
+  locale        text not null default 'es-PE',
+  activo        boolean not null default true,
+  settings      jsonb not null default '{}'::jsonb,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create trigger trg_org_touch before update on public."LIS_organizations"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Sedes (sucursales) dentro de una organizacion
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_sedes" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  codigo          text not null,          -- codigo interno de sede
+  nombre          text not null,
+  direccion       text,
+  telefono        text,
+  email           citext,
+  es_procesadora  boolean not null default true,  -- procesa muestras o solo toma
+  activo          boolean not null default true,
+  settings        jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (organization_id, codigo)
+);
+create index "LIS_idx_sedes_org" on public."LIS_sedes"(organization_id);
+create trigger trg_sede_touch before update on public."LIS_sedes"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Perfil de usuario (1:1 con auth.users)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_profiles" (
+  id            uuid primary key references auth.users(id) on delete cascade,
+  email         citext not null,
+  nombre        text not null default '',
+  telefono      text,
+  avatar_url    text,
+  es_superadmin boolean not null default false,   -- soporte de la plataforma
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create trigger trg_profile_touch before update on public."LIS_profiles"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Membership: un usuario pertenece a una sede con un rol.
+--   sede_id NULL => rol a nivel de toda la organizacion (org_admin)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_memberships" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  sede_id         uuid references public."LIS_sedes"(id) on delete cascade,
+  user_id         uuid not null references public."LIS_profiles"(id) on delete cascade,
+  role            app.role not null,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (organization_id, sede_id, user_id, role)
+);
+create index "LIS_idx_memberships_user" on public."LIS_memberships"(user_id) where activo;
+create index "LIS_idx_memberships_org" on public."LIS_memberships"(organization_id);
+create index "LIS_idx_memberships_sede" on public."LIS_memberships"(sede_id);
+create trigger trg_membership_touch before update on public."LIS_memberships"
+  for each row execute function app.touch_updated_at();
+
+-- ============================================================================
+-- Helpers de autorizacion (SECURITY DEFINER) usados por las politicas RLS.
+--   Evitan recursion consultando memberships con privilegios del owner.
+-- ============================================================================
+
+-- ¿Es superadmin de plataforma?
+create or replace function app.is_superadmin()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(
+    (select es_superadmin from public."LIS_profiles" where id = auth.uid()),
+    false
+  );
+$$;
+
+-- Organizaciones a las que pertenece el usuario actual
+create or replace function app.member_org_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select distinct organization_id
+  from public."LIS_memberships"
+  where user_id = auth.uid() and activo;
+$$;
+
+-- Sedes a las que el usuario tiene acceso.
+--   Un org_admin (sede_id null) tiene acceso a TODAS las sedes de su org.
+create or replace function app.member_sede_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select s.id
+  from public."LIS_sedes" s
+  where s.organization_id in (
+    -- orgs donde el usuario es admin de toda la organizacion
+    select m.organization_id from public."LIS_memberships" m
+    where m.user_id = auth.uid() and m.activo and m.sede_id is null
+  )
+  union
+  select m.sede_id
+  from public."LIS_memberships" m
+  where m.user_id = auth.uid() and m.activo and m.sede_id is not null;
+$$;
+
+-- ¿El usuario tiene alguno de los roles indicados en la organizacion dada?
+create or replace function app.has_org_role(p_org uuid, p_roles app.role[])
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public."LIS_memberships" m
+    where m.user_id = auth.uid() and m.activo
+      and m.organization_id = p_org
+      and m.role = any(p_roles)
+  );
+$$;
+
+-- ¿El usuario tiene alguno de los roles en la sede dada (o como org_admin)?
+create or replace function app.has_sede_role(p_sede uuid, p_roles app.role[])
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1
+    from public."LIS_sedes" s
+    join public."LIS_memberships" m on m.organization_id = s.organization_id
+    where s.id = p_sede and m.user_id = auth.uid() and m.activo
+      and (
+        (m.sede_id = p_sede and m.role = any(p_roles))
+        or (m.sede_id is null and m.role = any(p_roles))  -- rol a nivel org
+      )
+  );
+$$;
+
+-- ¿Puede administrar la organizacion? (org_admin o superadmin)
+create or replace function app.can_admin_org(p_org uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select app.is_superadmin() or app.has_org_role(p_org, array['org_admin']::app.role[]);
+$$;
+-- ============================================================================
+-- 0003 · Catalogo de laboratorio (modular)
+--   Base global (plantillas) + overrides por organizacion.
+--   categorias -> analitos -> rangos de referencia
+--   estudios/perfiles -> analitos que los componen -> precios por sede
+-- ============================================================================
+
+-- Tipos de muestra (sangre, orina, heces, etc.)
+create table public."LIS_specimen_types" (
+  id            uuid primary key default gen_random_uuid(),
+  codigo        text not null unique,
+  nombre        text not null,
+  descripcion   text,
+  activo        boolean not null default true
+);
+
+-- Categorias de estudios (hematologia, bioquimica, microbiologia, ...)
+-- organization_id NULL => plantilla global compartida.
+create table public."LIS_test_categories" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid references public."LIS_organizations"(id) on delete cascade,
+  codigo          text not null,
+  nombre          text not null,
+  descripcion     text,
+  orden           int not null default 0,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now(),
+  unique (organization_id, codigo)
+);
+create index "LIS_idx_categories_org" on public."LIS_test_categories"(organization_id);
+
+-- Analitos / parametros individuales (hemoglobina, glucosa, TSH, ...)
+create table public."LIS_analytes" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid references public."LIS_organizations"(id) on delete cascade,
+  category_id     uuid references public."LIS_test_categories"(id) on delete set null,
+  codigo          text not null,
+  nombre          text not null,
+  abreviatura     text,
+  loinc_code      text,                       -- estandar internacional
+  unidad          text,                       -- g/dL, mg/dL, U/L...
+  value_type      app.value_type not null default 'numerico',
+  opciones        jsonb,                      -- para value_type='opcion' (positivo/negativo...)
+  decimales       int not null default 2,
+  metodo          text,                       -- metodo analitico
+  orden           int not null default 0,
+  activo          boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (organization_id, codigo)
+);
+create index "LIS_idx_analytes_org" on public."LIS_analytes"(organization_id);
+create index "LIS_idx_analytes_cat" on public."LIS_analytes"(category_id);
+create index "LIS_idx_analytes_nombre_trgm" on public."LIS_analytes" using gin (nombre gin_trgm_ops);
+create trigger trg_analyte_touch before update on public."LIS_analytes"
+  for each row execute function app.touch_updated_at();
+
+-- Rangos de referencia por analito (segun sexo y edad)
+create table public."LIS_reference_ranges" (
+  id              uuid primary key default gen_random_uuid(),
+  analyte_id      uuid not null references public."LIS_analytes"(id) on delete cascade,
+  sexo            app.sex not null default 'desconocido',
+  edad_min_dias   int,                        -- limite inferior de edad en dias
+  edad_max_dias   int,
+  valor_min       numeric,
+  valor_max       numeric,
+  critico_min     numeric,
+  critico_max     numeric,
+  texto_normal    text,                       -- para cualitativos: "Negativo"
+  nota            text,
+  created_at      timestamptz not null default now()
+);
+create index "LIS_idx_refranges_analyte" on public."LIS_reference_ranges"(analyte_id);
+
+-- Estudios / perfiles que se ordenan (Hemograma, Perfil lipidico, ...)
+create table public."LIS_studies" (
+  id                uuid primary key default gen_random_uuid(),
+  organization_id   uuid references public."LIS_organizations"(id) on delete cascade,
+  category_id       uuid references public."LIS_test_categories"(id) on delete set null,
+  specimen_type_id  uuid references public."LIS_specimen_types"(id) on delete set null,
+  codigo            text not null,
+  nombre            text not null,
+  descripcion       text,
+  loinc_code        text,
+  tiempo_entrega_h  int,                       -- TAT objetivo en horas
+  requiere_ayuno    boolean not null default false,
+  indicaciones      text,                      -- preparacion del paciente
+  activo            boolean not null default true,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (organization_id, codigo)
+);
+create index "LIS_idx_studies_org" on public."LIS_studies"(organization_id);
+create index "LIS_idx_studies_cat" on public."LIS_studies"(category_id);
+create index "LIS_idx_studies_nombre_trgm" on public."LIS_studies" using gin (nombre gin_trgm_ops);
+create trigger trg_study_touch before update on public."LIS_studies"
+  for each row execute function app.touch_updated_at();
+
+-- Composicion: analitos que integran cada estudio
+create table public."LIS_study_analytes" (
+  id          uuid primary key default gen_random_uuid(),
+  study_id    uuid not null references public."LIS_studies"(id) on delete cascade,
+  analyte_id  uuid not null references public."LIS_analytes"(id) on delete cascade,
+  orden       int not null default 0,
+  formula     text,                            -- para calculados (ej. VLDL = TG/5)
+  unique (study_id, analyte_id)
+);
+create index "LIS_idx_study_analytes_study" on public."LIS_study_analytes"(study_id);
+
+-- Precios por organizacion/sede y moneda
+create table public."LIS_study_prices" (
+  id          uuid primary key default gen_random_uuid(),
+  study_id    uuid not null references public."LIS_studies"(id) on delete cascade,
+  sede_id     uuid references public."LIS_sedes"(id) on delete cascade,  -- null => precio base org
+  moneda      text not null default 'PEN',
+  precio      numeric(12,2) not null default 0,
+  vigente_desde date not null default current_date,
+  activo      boolean not null default true,
+  unique (study_id, sede_id, moneda, vigente_desde)
+);
+create index "LIS_idx_prices_study" on public."LIS_study_prices"(study_id);
+-- ============================================================================
+-- 0004 · Pacientes y ordenes de atencion
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Pacientes (por organizacion, compartidos entre sedes)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_patients" (
+  id                uuid primary key default gen_random_uuid(),
+  organization_id   uuid not null references public."LIS_organizations"(id) on delete cascade,
+  tipo_documento    text not null default 'DNI',
+  numero_documento  text not null,
+  nombres           text not null,
+  apellidos         text not null,
+  fecha_nacimiento  date,
+  sexo              app.sex not null default 'desconocido',
+  telefono          text,
+  email             citext,
+  direccion         text,
+  -- vinculo opcional a una cuenta de portal del paciente
+  portal_user_id    uuid references public."LIS_profiles"(id) on delete set null,
+  metadata          jsonb not null default '{}'::jsonb,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (organization_id, tipo_documento, numero_documento)
+);
+create index "LIS_idx_patients_org" on public."LIS_patients"(organization_id);
+create index "LIS_idx_patients_doc" on public."LIS_patients"(numero_documento);
+create index "LIS_idx_patients_nombre_trgm" on public."LIS_patients"
+  using gin ((nombres || ' ' || apellidos) gin_trgm_ops);
+create trigger trg_patient_touch before update on public."LIS_patients"
+  for each row execute function app.touch_updated_at();
+
+-- Edad en dias (para seleccionar rango de referencia)
+create or replace function app.patient_age_days(p_fecha_nac date)
+returns int
+language sql immutable
+as $$
+  select case when p_fecha_nac is null then null
+              else (current_date - p_fecha_nac) end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- Secuencia legible de ordenes por organizacion
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_order_counters" (
+  organization_id uuid primary key references public."LIS_organizations"(id) on delete cascade,
+  last_number     bigint not null default 0
+);
+
+create or replace function app.next_order_code(p_org uuid)
+returns text
+language plpgsql
+as $$
+declare
+  n bigint;
+begin
+  insert into public."LIS_order_counters"(organization_id, last_number)
+    values (p_org, 1)
+  on conflict (organization_id)
+    do update set last_number = public."LIS_order_counters".last_number + 1
+  returning last_number into n;
+  return 'ORD-' || to_char(now(), 'YYYY') || '-' || lpad(n::text, 6, '0');
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- Ordenes (una por atencion / visita)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_orders" (
+  id                uuid primary key default gen_random_uuid(),
+  organization_id   uuid not null references public."LIS_organizations"(id) on delete cascade,
+  sede_id           uuid not null references public."LIS_sedes"(id) on delete restrict,
+  patient_id        uuid not null references public."LIS_patients"(id) on delete restrict,
+  codigo            text not null,
+  status            app.order_status not null default 'registrada',
+  prioridad         app.order_priority not null default 'rutina',
+  medico_solicitante text,
+  diagnostico       text,
+  observaciones     text,
+  moneda            text not null default 'PEN',
+  total             numeric(12,2) not null default 0,
+  created_by        uuid references public."LIS_profiles"(id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (organization_id, codigo)
+);
+create index "LIS_idx_orders_org" on public."LIS_orders"(organization_id);
+create index "LIS_idx_orders_sede" on public."LIS_orders"(sede_id);
+create index "LIS_idx_orders_patient" on public."LIS_orders"(patient_id);
+create index "LIS_idx_orders_status" on public."LIS_orders"(status);
+create index "LIS_idx_orders_created" on public."LIS_orders"(created_at desc);
+create trigger trg_order_touch before update on public."LIS_orders"
+  for each row execute function app.touch_updated_at();
+
+-- Items de la orden (un estudio ordenado)
+create table public."LIS_order_items" (
+  id            uuid primary key default gen_random_uuid(),
+  order_id      uuid not null references public."LIS_orders"(id) on delete cascade,
+  study_id      uuid not null references public."LIS_studies"(id) on delete restrict,
+  status        app.item_status not null default 'pendiente',
+  precio        numeric(12,2) not null default 0,
+  descuento     numeric(12,2) not null default 0,
+  -- snapshot para reportes historicos
+  study_nombre  text not null,
+  study_codigo  text not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index "LIS_idx_order_items_order" on public."LIS_order_items"(order_id);
+create index "LIS_idx_order_items_study" on public."LIS_order_items"(study_id);
+create index "LIS_idx_order_items_status" on public."LIS_order_items"(status);
+create trigger trg_order_item_touch before update on public."LIS_order_items"
+  for each row execute function app.touch_updated_at();
+-- ============================================================================
+-- 0005 · Muestras y resultados (nucleo de trazabilidad analitica)
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Muestras (con codigo de barras para trazabilidad)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_samples" (
+  id                uuid primary key default gen_random_uuid(),
+  organization_id   uuid not null references public."LIS_organizations"(id) on delete cascade,
+  order_id          uuid not null references public."LIS_orders"(id) on delete cascade,
+  specimen_type_id  uuid references public."LIS_specimen_types"(id) on delete set null,
+  barcode           text not null unique,
+  status            app.sample_status not null default 'pendiente',
+  sede_toma_id      uuid references public."LIS_sedes"(id) on delete set null,
+  sede_proceso_id   uuid references public."LIS_sedes"(id) on delete set null,
+  tomada_por        uuid references public."LIS_profiles"(id) on delete set null,
+  tomada_at         timestamptz,
+  recibida_por      uuid references public."LIS_profiles"(id) on delete set null,
+  recibida_at       timestamptz,
+  motivo_rechazo    text,
+  observaciones     text,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+create index "LIS_idx_samples_org" on public."LIS_samples"(organization_id);
+create index "LIS_idx_samples_order" on public."LIS_samples"(order_id);
+create index "LIS_idx_samples_status" on public."LIS_samples"(status);
+create trigger trg_sample_touch before update on public."LIS_samples"
+  for each row execute function app.touch_updated_at();
+
+-- Relacion muestra <-> item de orden (una muestra puede cubrir varios estudios)
+create table public."LIS_sample_items" (
+  id            uuid primary key default gen_random_uuid(),
+  sample_id     uuid not null references public."LIS_samples"(id) on delete cascade,
+  order_item_id uuid not null references public."LIS_order_items"(id) on delete cascade,
+  unique (sample_id, order_item_id)
+);
+create index "LIS_idx_sample_items_sample" on public."LIS_sample_items"(sample_id);
+create index "LIS_idx_sample_items_item" on public."LIS_sample_items"(order_item_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- Resultados (un valor por analito por item de orden)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_results" (
+  id                uuid primary key default gen_random_uuid(),
+  organization_id   uuid not null references public."LIS_organizations"(id) on delete cascade,
+  order_item_id     uuid not null references public."LIS_order_items"(id) on delete cascade,
+  analyte_id        uuid not null references public."LIS_analytes"(id) on delete restrict,
+  -- snapshots para reporte historico
+  analyte_nombre    text not null,
+  analyte_unidad    text,
+  valor_num         numeric,
+  valor_texto       text,
+  flag              app.result_flag,
+  rango_texto       text,                       -- rango de referencia mostrado
+  status            app.result_status not null default 'pendiente',
+  metodo            text,
+  ingresado_por     uuid references public."LIS_profiles"(id) on delete set null,
+  ingresado_at      timestamptz,
+  validado_por      uuid references public."LIS_profiles"(id) on delete set null,
+  validado_at       timestamptz,
+  nota              text,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (order_item_id, analyte_id)
+);
+create index "LIS_idx_results_org" on public."LIS_results"(organization_id);
+create index "LIS_idx_results_item" on public."LIS_results"(order_item_id);
+create index "LIS_idx_results_status" on public."LIS_results"(status);
+create trigger trg_result_touch before update on public."LIS_results"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Evaluacion de flag segun rango de referencia
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.eval_flag(
+  p_valor numeric, p_min numeric, p_max numeric,
+  p_cmin numeric, p_cmax numeric
+) returns app.result_flag
+language sql immutable
+as $$
+  select case
+    when p_valor is null then null
+    when p_cmin is not null and p_valor < p_cmin then 'critico_bajo'::app.result_flag
+    when p_cmax is not null and p_valor > p_cmax then 'critico_alto'::app.result_flag
+    when p_min  is not null and p_valor < p_min  then 'bajo'::app.result_flag
+    when p_max  is not null and p_valor > p_max  then 'alto'::app.result_flag
+    else 'normal'::app.result_flag
+  end;
+$$;
+-- ============================================================================
+-- 0006 · Entrega de resultados y facturacion (Wally)
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Documentos de reporte generados (PDF en Storage)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_report_documents" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  order_id        uuid not null references public."LIS_orders"(id) on delete cascade,
+  storage_path    text,                      -- ruta en el bucket 'reports'
+  version         int not null default 1,
+  hash            text,                      -- integridad del documento
+  generado_por    uuid references public."LIS_profiles"(id) on delete set null,
+  created_at      timestamptz not null default now()
+);
+create index "LIS_idx_reportdocs_order" on public."LIS_report_documents"(order_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- Entregas de resultados al paciente (multi-canal + token de acceso)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_result_deliveries" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  order_id        uuid not null references public."LIS_orders"(id) on delete cascade,
+  canal           app.delivery_channel not null,
+  destino         text,                      -- email o telefono
+  status          app.delivery_status not null default 'pendiente',
+  access_token    text unique default encode(gen_random_bytes(24), 'hex'),
+  token_expira_at timestamptz,
+  enviado_at      timestamptz,
+  visto_at        timestamptz,
+  enviado_por     uuid references public."LIS_profiles"(id) on delete set null,
+  error_detalle   text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create index "LIS_idx_deliveries_order" on public."LIS_result_deliveries"(order_id);
+create index "LIS_idx_deliveries_token" on public."LIS_result_deliveries"(access_token);
+create trigger trg_delivery_touch before update on public."LIS_result_deliveries"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Configuracion de integracion de facturacion por organizacion
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_billing_integrations" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  provider        text not null default 'wally',   -- 'wally' | 'manual' | otros
+  enabled         boolean not null default false,
+  config          jsonb not null default '{}'::jsonb,  -- endpoints, serie, etc.
+  -- credenciales referenciadas por nombre a variables de entorno / vault
+  credential_ref  text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (organization_id, provider)
+);
+create trigger trg_billing_touch before update on public."LIS_billing_integrations"
+  for each row execute function app.touch_updated_at();
+
+-- ─────────────────────────────────────────────────────────────
+-- Facturas (espejo local del documento emitido por el proveedor)
+-- ─────────────────────────────────────────────────────────────
+create table public."LIS_invoices" (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public."LIS_organizations"(id) on delete cascade,
+  order_id        uuid not null references public."LIS_orders"(id) on delete cascade,
+  provider        text not null default 'wally',
+  external_id     text,                      -- id del documento en Wally
+  serie           text,
+  numero          text,
+  status          app.invoice_status not null default 'borrador',
+  moneda          text not null default 'PEN',
+  subtotal        numeric(12,2) not null default 0,
+  impuestos       numeric(12,2) not null default 0,
+  total           numeric(12,2) not null default 0,
+  pdf_url         text,
+  xml_url         text,
+  payload         jsonb,                     -- respuesta cruda del proveedor
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create index "LIS_idx_invoices_order" on public."LIS_invoices"(order_id);
+create index "LIS_idx_invoices_org" on public."LIS_invoices"(organization_id);
+create trigger trg_invoice_touch before update on public."LIS_invoices"
+  for each row execute function app.touch_updated_at();
+
+-- Bitacora de sincronizacion con el proveedor de facturacion
+create table public."LIS_invoice_events" (
+  id          uuid primary key default gen_random_uuid(),
+  invoice_id  uuid not null references public."LIS_invoices"(id) on delete cascade,
+  tipo        text not null,                 -- 'request','response','webhook','error'
+  detalle     jsonb,
+  created_at  timestamptz not null default now()
+);
+create index "LIS_idx_invoice_events_invoice" on public."LIS_invoice_events"(invoice_id);
+-- ============================================================================
+-- 0007 · Trazabilidad completa (bitacora de auditoria append-only)
+--   Registra cada INSERT/UPDATE/DELETE de las tablas criticas con actor,
+--   estado anterior y nuevo. Permite reconstruir el historial de una orden.
+-- ============================================================================
+
+create table public."LIS_audit_log" (
+  id              bigint generated always as identity primary key,
+  organization_id uuid,
+  sede_id         uuid,
+  actor_id        uuid,                      -- auth.uid() al momento del cambio
+  actor_email     text,
+  entidad         text not null,             -- nombre de la tabla
+  entidad_id      text,                      -- pk afectada
+  accion          text not null,             -- INSERT | UPDATE | DELETE
+  cambios         jsonb,                     -- diff de campos modificados
+  estado_anterior jsonb,
+  estado_nuevo    jsonb,
+  contexto        jsonb,                     -- info adicional opcional
+  created_at      timestamptz not null default now()
+);
+create index "LIS_idx_audit_org" on public."LIS_audit_log"(organization_id);
+create index "LIS_idx_audit_entidad" on public."LIS_audit_log"(entidad, entidad_id);
+create index "LIS_idx_audit_created" on public."LIS_audit_log"(created_at desc);
+create index "LIS_idx_audit_actor" on public."LIS_audit_log"(actor_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- Trigger generico de auditoria
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.audit_trigger()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_old       jsonb := case when tg_op <> 'INSERT' then to_jsonb(old) else null end;
+  v_new       jsonb := case when tg_op <> 'DELETE' then to_jsonb(new) else null end;
+  v_row       jsonb := coalesce(v_new, v_old);
+  v_org       uuid;
+  v_id        text;
+  v_diff      jsonb := '{}'::jsonb;
+  v_key       text;
+  v_email     text;
+begin
+  -- organizacion (si la tabla la tiene)
+  begin v_org := (v_row->>'organization_id')::uuid; exception when others then v_org := null; end;
+  -- fallback para tablas sin organization_id (p.ej. order_items): via order_id
+  if v_org is null and (v_row ? 'order_id') then
+    select o.organization_id into v_org
+    from public."LIS_orders" o where o.id = (v_row->>'order_id')::uuid;
+  end if;
+  v_id := coalesce(v_row->>'id', '');
+
+  -- diff de campos cambiados en UPDATE
+  if tg_op = 'UPDATE' then
+    for v_key in select jsonb_object_keys(v_new) loop
+      if v_new->v_key is distinct from v_old->v_key
+         and v_key not in ('updated_at') then
+        v_diff := v_diff || jsonb_build_object(
+          v_key, jsonb_build_object('de', v_old->v_key, 'a', v_new->v_key)
+        );
+      end if;
+    end loop;
+    if v_diff = '{}'::jsonb then
+      return coalesce(new, old);  -- sin cambios reales, no registrar
+    end if;
+  end if;
+
+  select email into v_email from public."LIS_profiles" where id = auth.uid();
+
+  insert into public."LIS_audit_log"(
+    organization_id, actor_id, actor_email, entidad, entidad_id,
+    accion, cambios, estado_anterior, estado_nuevo
+  ) values (
+    v_org, auth.uid(), v_email, tg_table_name, v_id,
+    tg_op, nullif(v_diff, '{}'::jsonb), v_old, v_new
+  );
+
+  return coalesce(new, old);
+end;
+$$;
+
+-- Adjuntar el trigger a las tablas criticas para trazabilidad
+create trigger trg_audit_orders after insert or update or delete on public."LIS_orders"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_order_items after insert or update or delete on public."LIS_order_items"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_samples after insert or update or delete on public."LIS_samples"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_results after insert or update or delete on public."LIS_results"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_deliveries after insert or update or delete on public."LIS_result_deliveries"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_invoices after insert or update or delete on public."LIS_invoices"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_patients after insert or update or delete on public."LIS_patients"
+  for each row execute function app.audit_trigger();
+create trigger trg_audit_memberships after insert or update or delete on public."LIS_memberships"
+  for each row execute function app.audit_trigger();
+-- ============================================================================
+-- 0008 · Logica de negocio: perfiles, totales y rollup de estados
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Crear profile automaticamente al registrar un usuario en auth
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public."LIS_profiles"(id, email, nombre)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'nombre', split_part(new.email, '@', 1))
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists "LIS_on_auth_user_created" on auth.users;
+create trigger "LIS_on_auth_user_created"
+  after insert on auth.users
+  for each row execute function app.handle_new_user();
+
+-- ─────────────────────────────────────────────────────────────
+-- Recalcular total de la orden cuando cambian sus items
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.recalc_order_total()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_order uuid := coalesce(new.order_id, old.order_id);
+begin
+  update public."LIS_orders" o
+  set total = coalesce((
+    select sum(oi.precio - oi.descuento)
+    from public."LIS_order_items" oi
+    where oi.order_id = v_order and oi.status <> 'anulado'
+  ), 0)
+  where o.id = v_order;
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_recalc_order_total
+  after insert or update of precio, descuento, status or delete on public."LIS_order_items"
+  for each row execute function app.recalc_order_total();
+
+-- ─────────────────────────────────────────────────────────────
+-- Rollup: estado del item segun sus resultados
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.rollup_item_status()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_item uuid := coalesce(new.order_item_id, old.order_item_id);
+  v_total int;
+  v_validados int;
+  v_cargados int;
+begin
+  select count(*),
+         count(*) filter (where status = 'validado'),
+         count(*) filter (where status in ('preliminar','validado','corregido'))
+    into v_total, v_validados, v_cargados
+  from public."LIS_results" where order_item_id = v_item;
+
+  update public."LIS_order_items" oi
+  set status = case
+    when v_total = 0 then 'pendiente'
+    when v_validados = v_total then 'validado'
+    when v_cargados > 0 then 'resultado_cargado'
+    else 'en_proceso'
+  end::app.item_status
+  where oi.id = v_item and oi.status not in ('anulado','rechazado');
+
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_rollup_item_status
+  after insert or update of status or delete on public."LIS_results"
+  for each row execute function app.rollup_item_status();
+
+-- ─────────────────────────────────────────────────────────────
+-- Rollup: estado de la orden segun sus items
+-- ─────────────────────────────────────────────────────────────
+create or replace function app.rollup_order_status()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_order uuid := coalesce(new.order_id, old.order_id);
+  v_total int;
+  v_validados int;
+  v_pendientes int;
+  v_cur app.order_status;
+begin
+  select status into v_cur from public."LIS_orders" where id = v_order;
+  -- no sobreescribir estados terminales/manuales
+  if v_cur in ('anulada','entregada') then
+    return coalesce(new, old);
+  end if;
+
+  select count(*),
+         count(*) filter (where status = 'validado'),
+         count(*) filter (where status in ('pendiente','en_proceso','resultado_cargado'))
+    into v_total, v_validados, v_pendientes
+  from public."LIS_order_items"
+  where order_id = v_order and status <> 'anulado';
+
+  update public."LIS_orders" o
+  set status = case
+    when v_total = 0 then 'registrada'
+    when v_validados = v_total then 'completada'
+    when v_validados > 0 then 'parcial'
+    else o.status
+  end::app.order_status
+  where o.id = v_order;
+
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_rollup_order_status
+  after insert or update of status or delete on public."LIS_order_items"
+  for each row execute function app.rollup_order_status();
+
+-- ─────────────────────────────────────────────────────────────
+-- RPC: guardar un resultado calculando flag y rango automaticamente
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.upsert_result(
+  p_order_item_id uuid,
+  p_analyte_id uuid,
+  p_valor_num numeric default null,
+  p_valor_texto text default null,
+  p_nota text default null,
+  p_validar boolean default false
+) returns public."LIS_results"
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_org        uuid;
+  v_patient_id uuid;
+  v_patient    "LIS_patients"%rowtype;
+  v_analyte    "LIS_analytes"%rowtype;
+  v_range      "LIS_reference_ranges"%rowtype;
+  v_age        int;
+  v_flag       app.result_flag;
+  v_rango_txt  text;
+  v_res        public."LIS_results";
+begin
+  select o.organization_id, o.patient_id into v_org, v_patient_id
+  from public."LIS_order_items" oi
+  join public."LIS_orders" o on o.id = oi.order_id
+  where oi.id = p_order_item_id;
+
+  if v_org is null then
+    raise exception 'order_item % no encontrado', p_order_item_id;
+  end if;
+
+  select * into v_patient
+  from public."LIS_patients"
+  where id = v_patient_id;
+
+  -- autorizacion: analista/validador/admin de esa organizacion
+  if not (app.is_superadmin() or app.has_org_role(v_org,
+       array['org_admin','sede_admin','analista','validador']::app.role[])) then
+    raise exception 'no autorizado para cargar resultados';
+  end if;
+
+  select * into v_analyte from public."LIS_analytes" where id = p_analyte_id;
+  v_age := app.patient_age_days(v_patient.fecha_nacimiento);
+
+  -- seleccionar rango de referencia mas especifico
+  select * into v_range from public."LIS_reference_ranges" r
+  where r.analyte_id = p_analyte_id
+    and (r.sexo = v_patient.sexo or r.sexo = 'desconocido')
+    and (r.edad_min_dias is null or v_age is null or v_age >= r.edad_min_dias)
+    and (r.edad_max_dias is null or v_age is null or v_age <= r.edad_max_dias)
+  order by (r.sexo = v_patient.sexo) desc,
+           (r.edad_min_dias is not null) desc
+  limit 1;
+
+  if p_valor_num is not null then
+    v_flag := app.eval_flag(p_valor_num, v_range.valor_min, v_range.valor_max,
+                            v_range.critico_min, v_range.critico_max);
+  end if;
+
+  if v_range.valor_min is not null or v_range.valor_max is not null then
+    v_rango_txt := coalesce(v_range.valor_min::text,'') || ' - ' || coalesce(v_range.valor_max::text,'');
+  else
+    v_rango_txt := v_range.texto_normal;
+  end if;
+
+  insert into public."LIS_results" as r (
+    organization_id, order_item_id, analyte_id, analyte_nombre, analyte_unidad,
+    valor_num, valor_texto, flag, rango_texto, metodo, nota,
+    status, ingresado_por, ingresado_at,
+    validado_por, validado_at
+  ) values (
+    v_org, p_order_item_id, p_analyte_id, v_analyte.nombre, v_analyte.unidad,
+    p_valor_num, p_valor_texto, v_flag, v_rango_txt, v_analyte.metodo, p_nota,
+    case when p_validar then 'validado' else 'preliminar' end,
+    auth.uid(), now(),
+    case when p_validar then auth.uid() end,
+    case when p_validar then now() end
+  )
+  on conflict (order_item_id, analyte_id) do update set
+    valor_num     = excluded.valor_num,
+    valor_texto   = excluded.valor_texto,
+    flag          = excluded.flag,
+    rango_texto   = excluded.rango_texto,
+    nota          = excluded.nota,
+    status        = case when p_validar then 'validado'
+                         when r.status = 'validado' then 'corregido'
+                         else 'preliminar' end::app.result_status,
+    ingresado_por = auth.uid(),
+    ingresado_at  = now(),
+    validado_por  = case when p_validar then auth.uid() else r.validado_por end,
+    validado_at   = case when p_validar then now() else r.validado_at end,
+    updated_at    = now()
+  returning * into v_res;
+
+  return v_res;
+end;
+$$;
+-- ============================================================================
+-- 0009 · Row Level Security (aislamiento multi-tenant por organizacion/sede)
+--   Regla base: cada fila pertenece a una organizacion; un usuario solo ve
+--   filas de sus organizaciones. Las escrituras exigen el rol adecuado.
+--   Las funciones SECURITY DEFINER (triggers, RPC) omiten RLS por diseno.
+-- ============================================================================
+
+-- Habilitar RLS en todas las tablas del dominio
+alter table public."LIS_organizations"       enable row level security;
+alter table public."LIS_sedes"               enable row level security;
+alter table public."LIS_profiles"            enable row level security;
+alter table public."LIS_memberships"         enable row level security;
+alter table public."LIS_specimen_types"      enable row level security;
+alter table public."LIS_test_categories"     enable row level security;
+alter table public."LIS_analytes"            enable row level security;
+alter table public."LIS_reference_ranges"    enable row level security;
+alter table public."LIS_studies"             enable row level security;
+alter table public."LIS_study_analytes"      enable row level security;
+alter table public."LIS_study_prices"        enable row level security;
+alter table public."LIS_patients"            enable row level security;
+alter table public."LIS_order_counters"      enable row level security;
+alter table public."LIS_orders"              enable row level security;
+alter table public."LIS_order_items"         enable row level security;
+alter table public."LIS_samples"             enable row level security;
+alter table public."LIS_sample_items"        enable row level security;
+alter table public."LIS_results"             enable row level security;
+alter table public."LIS_report_documents"    enable row level security;
+alter table public."LIS_result_deliveries"   enable row level security;
+alter table public."LIS_billing_integrations" enable row level security;
+alter table public."LIS_invoices"            enable row level security;
+alter table public."LIS_invoice_events"      enable row level security;
+alter table public."LIS_audit_log"           enable row level security;
+
+-- ─────────────────────────────────────────────────────────────
+-- organizations
+-- ─────────────────────────────────────────────────────────────
+create policy org_select on public."LIS_organizations" for select to authenticated
+  using (app.is_superadmin() or id in (select app.member_org_ids()));
+create policy org_update on public."LIS_organizations" for update to authenticated
+  using (app.can_admin_org(id)) with check (app.can_admin_org(id));
+create policy org_insert on public."LIS_organizations" for insert to authenticated
+  with check (app.is_superadmin());
+
+-- ─────────────────────────────────────────────────────────────
+-- sedes
+-- ─────────────────────────────────────────────────────────────
+create policy sede_select on public."LIS_sedes" for select to authenticated
+  using (app.is_superadmin() or organization_id in (select app.member_org_ids()));
+create policy sede_write on public."LIS_sedes" for all to authenticated
+  using (app.can_admin_org(organization_id))
+  with check (app.can_admin_org(organization_id));
+
+-- ─────────────────────────────────────────────────────────────
+-- profiles: cada quien ve su perfil y el de colegas de su organizacion
+-- ─────────────────────────────────────────────────────────────
+create policy profile_select_self on public."LIS_profiles" for select to authenticated
+  using (
+    id = auth.uid()
+    or app.is_superadmin()
+    or id in (
+      select m.user_id from public."LIS_memberships" m
+      where m.organization_id in (select app.member_org_ids())
+    )
+  );
+create policy profile_update_self on public."LIS_profiles" for update to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
+
+-- ─────────────────────────────────────────────────────────────
+-- memberships
+-- ─────────────────────────────────────────────────────────────
+create policy membership_select on public."LIS_memberships" for select to authenticated
+  using (
+    user_id = auth.uid()
+    or app.is_superadmin()
+    or organization_id in (select app.member_org_ids())
+  );
+create policy membership_write on public."LIS_memberships" for all to authenticated
+  using (app.can_admin_org(organization_id))
+  with check (app.can_admin_org(organization_id));
+
+-- ─────────────────────────────────────────────────────────────
+-- Catalogo: lectura de plantillas globales (org null) + propias.
+--   Escritura solo admins de la organizacion propietaria.
+-- ─────────────────────────────────────────────────────────────
+create policy specimen_select on public."LIS_specimen_types" for select to authenticated using (true);
+create policy specimen_write on public."LIS_specimen_types" for all to authenticated
+  using (app.is_superadmin()) with check (app.is_superadmin());
+
+-- Macro reutilizable via patron: categorias, analitos, estudios
+create policy category_select on public."LIS_test_categories" for select to authenticated
+  using (organization_id is null or organization_id in (select app.member_org_ids()));
+create policy category_write on public."LIS_test_categories" for all to authenticated
+  using (organization_id is not null and app.can_admin_org(organization_id))
+  with check (organization_id is not null and app.can_admin_org(organization_id));
+
+create policy analyte_select on public."LIS_analytes" for select to authenticated
+  using (organization_id is null or organization_id in (select app.member_org_ids()));
+create policy analyte_write on public."LIS_analytes" for all to authenticated
+  using (organization_id is not null and app.can_admin_org(organization_id))
+  with check (organization_id is not null and app.can_admin_org(organization_id));
+
+create policy study_select on public."LIS_studies" for select to authenticated
+  using (organization_id is null or organization_id in (select app.member_org_ids()));
+create policy study_write on public."LIS_studies" for all to authenticated
+  using (organization_id is not null and app.can_admin_org(organization_id))
+  with check (organization_id is not null and app.can_admin_org(organization_id));
+
+-- Hijos del catalogo: heredan visibilidad del padre
+create policy refrange_select on public."LIS_reference_ranges" for select to authenticated
+  using (exists (select 1 from public."LIS_analytes" a where a.id = analyte_id
+    and (a.organization_id is null or a.organization_id in (select app.member_org_ids()))));
+create policy refrange_write on public."LIS_reference_ranges" for all to authenticated
+  using (exists (select 1 from public."LIS_analytes" a where a.id = analyte_id
+    and a.organization_id is not null and app.can_admin_org(a.organization_id)))
+  with check (exists (select 1 from public."LIS_analytes" a where a.id = analyte_id
+    and a.organization_id is not null and app.can_admin_org(a.organization_id)));
+
+create policy studyanalyte_select on public."LIS_study_analytes" for select to authenticated
+  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and (s.organization_id is null or s.organization_id in (select app.member_org_ids()))));
+create policy studyanalyte_write on public."LIS_study_analytes" for all to authenticated
+  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and s.organization_id is not null and app.can_admin_org(s.organization_id)))
+  with check (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and s.organization_id is not null and app.can_admin_org(s.organization_id)));
+
+create policy studyprice_select on public."LIS_study_prices" for select to authenticated
+  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and (s.organization_id is null or s.organization_id in (select app.member_org_ids()))));
+create policy studyprice_write on public."LIS_study_prices" for all to authenticated
+  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and s.organization_id is not null and app.can_admin_org(s.organization_id)))
+  with check (exists (select 1 from public."LIS_studies" s where s.id = study_id
+    and s.organization_id is not null and app.can_admin_org(s.organization_id)));
+
+-- ─────────────────────────────────────────────────────────────
+-- Pacientes (org-scoped). Escritura: recepcion/admin.
+-- ─────────────────────────────────────────────────────────────
+create policy patient_select on public."LIS_patients" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy patient_write on public."LIS_patients" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion']::app.role[]));
+
+-- ─────────────────────────────────────────────────────────────
+-- order_counters: solo lectura para miembros; escritura via RPC definer
+-- ─────────────────────────────────────────────────────────────
+create policy counter_select on public."LIS_order_counters" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+
+-- ─────────────────────────────────────────────────────────────
+-- Ordenes (scope por sede). Escritura: recepcion/admin.
+-- ─────────────────────────────────────────────────────────────
+create policy order_select on public."LIS_orders" for select to authenticated
+  using (sede_id in (select app.member_sede_ids()));
+create policy order_write on public."LIS_orders" for all to authenticated
+  using (app.has_sede_role(sede_id,
+    array['org_admin','sede_admin','recepcion','facturacion']::app.role[]))
+  with check (app.has_sede_role(sede_id,
+    array['org_admin','sede_admin','recepcion','facturacion']::app.role[]));
+
+-- order_items: heredan de la orden
+create policy orderitem_select on public."LIS_order_items" for select to authenticated
+  using (exists (select 1 from public."LIS_orders" o where o.id = order_id
+    and o.sede_id in (select app.member_sede_ids())));
+create policy orderitem_write on public."LIS_order_items" for all to authenticated
+  using (exists (select 1 from public."LIS_orders" o where o.id = order_id
+    and app.has_sede_role(o.sede_id,
+      array['org_admin','sede_admin','recepcion','analista','validador']::app.role[])))
+  with check (exists (select 1 from public."LIS_orders" o where o.id = order_id
+    and app.has_sede_role(o.sede_id,
+      array['org_admin','sede_admin','recepcion','analista','validador']::app.role[])));
+
+-- ─────────────────────────────────────────────────────────────
+-- Muestras y resultados (org-scoped; roles de laboratorio)
+-- ─────────────────────────────────────────────────────────────
+create policy sample_select on public."LIS_samples" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy sample_write on public."LIS_samples" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion','toma_muestra','analista','validador']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion','toma_muestra','analista','validador']::app.role[]));
+
+create policy sampleitem_select on public."LIS_sample_items" for select to authenticated
+  using (exists (select 1 from public."LIS_samples" s where s.id = sample_id
+    and s.organization_id in (select app.member_org_ids())));
+create policy sampleitem_write on public."LIS_sample_items" for all to authenticated
+  using (exists (select 1 from public."LIS_samples" s where s.id = sample_id
+    and app.has_org_role(s.organization_id,
+      array['org_admin','sede_admin','toma_muestra','analista']::app.role[])))
+  with check (exists (select 1 from public."LIS_samples" s where s.id = sample_id
+    and app.has_org_role(s.organization_id,
+      array['org_admin','sede_admin','toma_muestra','analista']::app.role[])));
+
+create policy result_select on public."LIS_results" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy result_write on public."LIS_results" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','analista','validador']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','analista','validador']::app.role[]));
+
+-- ─────────────────────────────────────────────────────────────
+-- Reportes, entregas, facturacion (org-scoped)
+-- ─────────────────────────────────────────────────────────────
+create policy reportdoc_select on public."LIS_report_documents" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy reportdoc_write on public."LIS_report_documents" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','analista','validador','recepcion']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','analista','validador','recepcion']::app.role[]));
+
+create policy delivery_select on public."LIS_result_deliveries" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy delivery_write on public."LIS_result_deliveries" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion','validador']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','recepcion','validador']::app.role[]));
+
+create policy billing_select on public."LIS_billing_integrations" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy billing_write on public."LIS_billing_integrations" for all to authenticated
+  using (app.can_admin_org(organization_id))
+  with check (app.can_admin_org(organization_id));
+
+create policy invoice_select on public."LIS_invoices" for select to authenticated
+  using (organization_id in (select app.member_org_ids()));
+create policy invoice_write on public."LIS_invoices" for all to authenticated
+  using (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','facturacion']::app.role[]))
+  with check (app.has_org_role(organization_id,
+    array['org_admin','sede_admin','facturacion']::app.role[]));
+
+create policy invoiceevent_select on public."LIS_invoice_events" for select to authenticated
+  using (exists (select 1 from public."LIS_invoices" i where i.id = invoice_id
+    and i.organization_id in (select app.member_org_ids())));
+
+-- ─────────────────────────────────────────────────────────────
+-- Auditoria: lectura para admins/lectura; nunca escritura via API
+-- ─────────────────────────────────────────────────────────────
+create policy audit_select on public."LIS_audit_log" for select to authenticated
+  using (
+    app.is_superadmin()
+    or app.has_org_role(organization_id, array['org_admin','sede_admin','lectura']::app.role[])
+  );
+-- ============================================================================
+-- 0010 · Vistas de consulta y RPC de alto nivel
+-- ============================================================================
+
+-- ─────────────────────────────────────────────────────────────
+-- Vista: resumen de ordenes con paciente y progreso
+--   (hereda RLS de las tablas base; usa security_invoker)
+-- ─────────────────────────────────────────────────────────────
+create or replace view public.v_order_overview
+with (security_invoker = true) as
+select
+  o.id,
+  o.organization_id,
+  o.sede_id,
+  o.codigo,
+  o.status,
+  o.prioridad,
+  o.total,
+  o.moneda,
+  o.created_at,
+  s.nombre               as sede_nombre,
+  p.id                   as patient_id,
+  (p.nombres || ' ' || p.apellidos) as paciente,
+  p.numero_documento,
+  p.sexo,
+  p.fecha_nacimiento,
+  count(oi.id)                                          as items_total,
+  count(oi.id) filter (where oi.status = 'validado')    as items_validados,
+  count(oi.id) filter (where oi.status = 'pendiente')   as items_pendientes
+from public."LIS_orders" o
+join public."LIS_sedes" s      on s.id = o.sede_id
+join public."LIS_patients" p   on p.id = o.patient_id
+left join public."LIS_order_items" oi on oi.order_id = o.id
+group by o.id, s.nombre, p.id;
+
+-- ─────────────────────────────────────────────────────────────
+-- RPC: crear una orden con sus items (recepcion)
+--   p_items: jsonb array de { study_id }
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.create_order(
+  p_sede_id uuid,
+  p_patient_id uuid,
+  p_items jsonb,
+  p_prioridad app.order_priority default 'rutina',
+  p_medico text default null,
+  p_diagnostico text default null,
+  p_observaciones text default null
+) returns public."LIS_orders"
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_org    uuid;
+  v_order  public."LIS_orders";
+  v_item   jsonb;
+  v_study  public."LIS_studies";
+  v_precio numeric;
+begin
+  select organization_id into v_org from public."LIS_sedes" where id = p_sede_id;
+  if v_org is null then
+    raise exception 'sede % no existe', p_sede_id;
+  end if;
+
+  -- autorizacion: recepcion/admin de esa sede
+  if not (app.is_superadmin() or app.has_sede_role(p_sede_id,
+       array['org_admin','sede_admin','recepcion']::app.role[])) then
+    raise exception 'no autorizado para crear ordenes en esta sede';
+  end if;
+
+  insert into public."LIS_orders"(
+    organization_id, sede_id, patient_id, codigo, prioridad,
+    medico_solicitante, diagnostico, observaciones, created_by
+  ) values (
+    v_org, p_sede_id, p_patient_id, app.next_order_code(v_org), p_prioridad,
+    p_medico, p_diagnostico, p_observaciones, auth.uid()
+  ) returning * into v_order;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    select * into v_study from public."LIS_studies" where id = (v_item->>'study_id')::uuid;
+    if v_study.id is null then
+      raise exception 'estudio % no existe', v_item->>'study_id';
+    end if;
+
+    select precio into v_precio from public."LIS_study_prices"
+    where study_id = v_study.id
+      and (sede_id = p_sede_id or sede_id is null)
+      and activo
+    order by (sede_id = p_sede_id) desc, vigente_desde desc
+    limit 1;
+
+    insert into public."LIS_order_items"(
+      order_id, study_id, precio, study_nombre, study_codigo
+    ) values (
+      v_order.id, v_study.id, coalesce(v_precio, 0), v_study.nombre, v_study.codigo
+    );
+  end loop;
+
+  return v_order;
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- RPC: bootstrap de una organizacion con su admin (setup inicial)
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.bootstrap_organization(
+  p_slug text,
+  p_nombre text,
+  p_sede_nombre text default 'Sede Principal'
+) returns public."LIS_organizations"
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_org  public."LIS_organizations";
+  v_sede public."LIS_sedes";
+begin
+  if auth.uid() is null then
+    raise exception 'requiere autenticacion';
+  end if;
+
+  insert into public."LIS_organizations"(slug, nombre)
+  values (p_slug, p_nombre) returning * into v_org;
+
+  insert into public."LIS_sedes"(organization_id, codigo, nombre)
+  values (v_org.id, 'S001', p_sede_nombre) returning * into v_sede;
+
+  -- el creador queda como administrador de la organizacion
+  insert into public."LIS_memberships"(organization_id, sede_id, user_id, role)
+  values (v_org.id, null, auth.uid(), 'org_admin');
+
+  return v_org;
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────
+-- RPC: trazabilidad de una orden (linea de tiempo de auditoria)
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.order_timeline(p_order_id uuid)
+returns setof public."LIS_audit_log"
+language sql stable security definer set search_path = public
+as $$
+  select a.*
+  from public."LIS_audit_log" a
+  where a.organization_id in (select app.member_org_ids())
+    and (
+      (a.entidad = 'LIS_orders' and a.entidad_id = p_order_id::text)
+      or (a.entidad = 'LIS_order_items' and a.entidad_id in (
+            select oi.id::text from public."LIS_order_items" oi where oi.order_id = p_order_id))
+      or (a.entidad = 'LIS_samples' and a.entidad_id in (
+            select s.id::text from public."LIS_samples" s where s.order_id = p_order_id))
+      or (a.entidad = 'LIS_results' and a.entidad_id in (
+            select r.id::text from public."LIS_results" r
+            join public."LIS_order_items" oi on oi.id = r.order_item_id
+            where oi.order_id = p_order_id))
+      or (a.entidad = 'LIS_result_deliveries' and a.entidad_id in (
+            select d.id::text from public."LIS_result_deliveries" d where d.order_id = p_order_id))
+    )
+  order by a.created_at asc;
+$$;

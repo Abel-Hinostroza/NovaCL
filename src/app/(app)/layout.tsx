@@ -1,0 +1,43 @@
+import { getSessionContext } from "@/lib/auth/session";
+import { visibleNav } from "@/lib/nav";
+import { ROLE_LABELS } from "@/lib/constants";
+import { Sidebar } from "@/components/shell/sidebar";
+import { Topbar } from "@/components/shell/topbar";
+import { OnboardingCard } from "@/components/shell/onboarding";
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const ctx = await getSessionContext();
+
+  // Usuario autenticado sin organización → onboarding
+  if (ctx.organizations.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+        <OnboardingCard email={ctx.user.email} />
+      </div>
+    );
+  }
+
+  const isSuper = ctx.profile?.es_superadmin ?? false;
+  const sections = visibleNav(ctx.roles, isSuper);
+  const roleLabel = ctx.roles[0] ? ROLE_LABELS[ctx.roles[0]] : "Miembro";
+
+  return (
+    <div className="flex min-h-screen bg-muted/20">
+      <Sidebar sections={sections} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar
+          sections={sections}
+          organizations={ctx.organizations}
+          sedes={ctx.sedes}
+          activeOrgId={ctx.activeOrgId}
+          activeSedeId={ctx.activeSedeId}
+          user={{ email: ctx.user.email, nombre: ctx.profile?.nombre ?? "" }}
+          roleLabel={roleLabel}
+        />
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-7xl">{children}</div>
+        </main>
+      </div>
+    </div>
+  );
+}

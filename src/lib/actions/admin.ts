@@ -1,0 +1,113 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { getSessionContext, hasRole } from "@/lib/auth/session";
+import type { Role } from "@/lib/database.types";
+
+async function requireOrgAdmin() {
+  const ctx = await getSessionContext();
+  if (!hasRole(ctx.roles, ["org_admin", "sede_admin"]) && !ctx.profile?.es_superadmin) {
+    throw new Error("No autorizado");
+  }
+  return ctx;
+}
+
+// ── Sedes ────────────────────────────────────────────────────
+export async function createSedeAction(_prev: unknown, formData: FormData) {
+  const ctx = await requireOrgAdmin();
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  const codigo = String(formData.get("codigo") ?? "").trim();
+  const direccion = String(formData.get("direccion") ?? "").trim();
+  if (!nombre || !codigo) return { error: "Código y nombre son obligatorios." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("LIS_sedes").insert({
+    organization_id: ctx.activeOrgId!,
+    codigo,
+    nombre,
+    direccion: direccion || null,
+  });
+  if (error) {
+    return { error: error.code === "23505" ? "Ya existe una sede con ese código." : "No se pudo crear la sede." };
+  }
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+export async function toggleSedeAction(sedeId: string, activo: boolean) {
+  await requireOrgAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.from("LIS_sedes").update({ activo }).eq("id", sedeId);
+  if (error) return { error: error.message };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// ── Miembros / roles ─────────────────────────────────────────
+export async function addMemberAction(_prev: unknown, formData: FormData) {
+  const ctx = await requireOrgAdmin();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const role = String(formData.get("role") ?? "") as Role;
+  const sedeId = String(formData.get("sede_id") ?? "");
+  if (!email || !role) return { error: "Email y rol son obligatorios." };
+
+  // Buscar el perfil por email (con service role, fuera de RLS)
+  const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("LIS_profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!profile) {
+    return { error: "No existe un usuario con ese email. Pídele que se registre primero." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("LIS_memberships").insert({
+    organization_id: ctx.activeOrgId!,
+    sede_id: sedeId || null,
+    user_id: profile.id,
+    role,
+  });
+  if (error) {
+    return { error: error.code === "23505" ? "El usuario ya tiene ese rol en esa sede." : "No se pudo asignar el rol." };
+  }
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+export async function removeMemberAction(membershipId: string) {
+  await requireOrgAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.from("LIS_memberships").delete().eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// ── Facturación ──────────────────────────────────────────────
+export async function saveBillingAction(_prev: unknown, formData: FormData) {
+  const ctx = await requireOrgAdmin();
+  const provider = String(formData.get("provider") ?? "wally");
+  const enabled = formData.get("enabled") === "on";
+  const serie = String(formData.get("serie") ?? "").trim();
+  const igv = Number(formData.get("igv") ?? 0.18);
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("LIS_billing_integrations")
+    .upsert(
+      {
+        organization_id: ctx.activeOrgId!,
+        provider,
+        enabled,
+        config: { serie: serie || "B001", igv },
+      },
+      { onConflict: "organization_id,provider" }
+    );
+  if (error) return { error: error.message };
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
