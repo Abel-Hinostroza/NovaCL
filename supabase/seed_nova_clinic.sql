@@ -2,7 +2,7 @@ begin;
 
 do $$
 declare
-  v_admin_email constant text := 'hinostrozajavier5b@gmail.com';
+  v_admin_email text;
   v_admin uuid;
   v_previous_org uuid;
   v_org constant uuid := '4e6f7661-436c-496e-8000-000000000001';
@@ -71,14 +71,16 @@ declare
   v_inv6 uuid;
   v_inv7 uuid;
 begin
-  select id
-  into v_admin
-  from auth.users
-  where lower(email) = lower(v_admin_email)
+  select u.id, u.email
+  into v_admin, v_admin_email
+  from auth.users u
+  join public."LIS_profiles" p on p.id = u.id
+  where p.es_superadmin
+  order by p.created_at
   limit 1;
 
   if v_admin is null then
-    raise exception 'El usuario % no existe en Supabase Auth. Créalo antes de ejecutar este seed.', v_admin_email;
+    raise exception 'No existe un perfil global con es_superadmin=true. Crea o promueve un administrador antes de ejecutar este seed.';
   end if;
 
   select id

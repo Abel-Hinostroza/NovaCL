@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SEED · Datos de arranque: catalogo clinico global + organizacion demo
---   Usuario demo:  hinostrozajavier5b@gmail.com  /  AdminNova
+--   Usuario demo generado localmente con credenciales aleatorias
 -- ============================================================================
 
 -- ─────────────────────────────────────────────────────────────
@@ -189,8 +189,9 @@ end $$;
 -- ─────────────────────────────────────────────────────────────
 do $$
 declare
-  v_uid   uuid := '00000000-0000-0000-0000-0000000000a2';
-  v_org   uuid := '00000000-0000-0000-0000-0000000000b1';
+  v_uid      uuid := '00000000-0000-0000-0000-0000000000a2';
+  v_password text := encode(gen_random_bytes(18), 'base64');
+  v_org      uuid := '00000000-0000-0000-0000-0000000000b1';
   v_sede1 uuid := '00000000-0000-0000-0000-0000000000c1';
   v_sede2 uuid := '00000000-0000-0000-0000-0000000000c2';
 begin
@@ -202,7 +203,7 @@ begin
     confirmation_token, recovery_token, email_change_token_new, email_change
   ) values (
     v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-    'hinostrozajavier5b@gmail.com', crypt('AdminNova', gen_salt('bf')),
+    'admin@nova-clinic.example', crypt(v_password, gen_salt('bf')),
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     '{"nombre":"Administrador Demo"}'::jsonb,
@@ -213,12 +214,12 @@ begin
     id, user_id, provider_id, identity_data, provider, created_at, updated_at
   ) values (
     gen_random_uuid(), v_uid, v_uid::text,
-    format('{"sub":"%s","email":"hinostrozajavier5b@gmail.com"}', v_uid)::jsonb,
+    format('{"sub":"%s","email":"admin@nova-clinic.example"}', v_uid)::jsonb,
     'email', now(), now()
   ) on conflict do nothing;
 
   insert into public."LIS_profiles" (id, email, nombre)
-  values (v_uid, 'hinostrozajavier5b@gmail.com', 'Administrador Demo')
+  values (v_uid, 'admin@nova-clinic.example', 'Administrador Demo')
   on conflict (id) do nothing;
 
   -- organizacion y sedes

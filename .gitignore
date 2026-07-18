@@ -1,36 +1,130 @@
 # dependencies
-/node_modules
+/node_modules/
 /.pnp
 .pnp.*
+.pnpm-store/
 
 # next.js
 /.next/
 /out/
+/dist/
 next-env.d.ts
 
 # production
-/build
+/build/
+/coverage/
+/.nyc_output/
+/playwright-report/
+/test-results/
+/cypress/videos/
+/cypress/screenshots/
 
 # misc
 .DS_Store
+.AppleDouble
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+ehthumbs.db
 *.pem
+*.key
+*.pfx
+*.p12
+*.keystore
+*.jks
+*.cer
+*.crt
+*.der
+*.csr
+*.p8
+*.asc
+*.mobileprovision
+service-account*.json
+service_account*.json
+*-credentials.json
+credentials.json
+gha-creds-*.json
+firebase-adminsdk*.json
+secrets/
+.aws/
+.gcp/
+.azure/
+.terraform/
+*.tfvars
+*.tfstate
+*.tfstate.*
 .claude/
+.cursor/
+.aider*
+.cody/
+.continue/
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.cache/
+.parcel-cache/
+.turbo/
+.swc/
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+*.orig
+*.rej
+.eslintcache
+.stylelintcache
 
 # debug
+*.log
+*.log.*
+logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+pnpm-error.log*
+lerna-debug.log*
 
 # local env files
 .env
-.env*.local
+.env.*
+*.env
+*.env.*
+!.env.example
+.envrc
+*.envrc
+.npmrc
+.yarnrc
+.netrc
+
+*.dump
+*.sql.gz
+*.sql.bak
+*.sql.tgz
+*.bak
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+db-backups/
+dumps/
+backups/
 
 # vercel
-.vercel
+.vercel/
 
 # typescript
 *.tsbuildinfo
 
 # supabase
-supabase/.branches
-supabase/.temp
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+supabase/.env.*
+supabase/storage/
