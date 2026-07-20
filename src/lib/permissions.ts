@@ -28,6 +28,7 @@ export const MODULES = [
   "facturacion",
   "trazabilidad",
   "configuracion",
+  "admin_organizaciones",
 ] as const;
 
 export type ModuleKey = (typeof MODULES)[number];
@@ -46,6 +47,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   facturacion: "Facturación",
   trazabilidad: "Trazabilidad",
   configuracion: "Configuración",
+  admin_organizaciones: "Admin · Organizaciones",
 };
 
 export type Perm = { view: boolean; edit: boolean };
@@ -66,6 +68,7 @@ const DEFAULT_VIEW_ROLES: Record<ModuleKey, Role[] | null> = {
   facturacion: ["org_admin", "sede_admin", "facturacion"],
   trazabilidad: ["org_admin", "sede_admin", "lectura"],
   configuracion: ["org_admin", "sede_admin"],
+  admin_organizaciones: [],
 };
 
 /** Roles de solo lectura: por defecto ven pero no editan. */

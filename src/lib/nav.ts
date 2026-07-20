@@ -14,6 +14,7 @@ import {
   Settings,
   FolderTree,
   Boxes,
+  ShieldCheck,
 } from "lucide-react";
 
 export const NAV_ICONS = {
@@ -30,6 +31,7 @@ export const NAV_ICONS = {
   Settings,
   FolderTree,
   Boxes,
+  ShieldCheck,
 };
 
 export type NavItem = {
@@ -63,6 +65,12 @@ export const NAV: NavSection[] = [
       { label: "Facturación", href: "/facturacion", icon: "Receipt", roles: ["org_admin", "sede_admin", "facturacion"] },
       { label: "Trazabilidad", href: "/trazabilidad", icon: "History", roles: ["org_admin", "sede_admin", "lectura"] },
       { label: "Configuración", href: "/configuracion", icon: "Settings", roles: ["org_admin", "sede_admin"] },
+    ],
+  },
+  {
+    title: "Plataforma",
+    items: [
+      { label: "Admin · Organizaciones", href: "/admin/organizaciones", icon: "ShieldCheck" },
     ],
   },
 ];

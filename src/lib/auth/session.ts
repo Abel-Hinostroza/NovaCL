@@ -113,3 +113,10 @@ export async function requireRole(allowed: Role[]) {
   }
   return ctx;
 }
+
+/** Solo superadmin de plataforma. Devuelve el contexto si pasa. */
+export async function requireSuperadmin() {
+  const ctx = await getSessionContext();
+  if (!ctx.profile?.es_superadmin) redirect("/sin-permiso");
+  return ctx;
+}
