@@ -87,6 +87,20 @@ export type DeliveryChannel = "portal" | "email" | "sms" | "whatsapp" | "impreso
 export type DeliveryStatus = "pendiente" | "enviado" | "visto" | "fallido";
 export type InvoiceStatus = "borrador" | "emitida" | "pagada" | "anulada" | "error_sync";
 
+export type InventoryItemType =
+  | "reactivo"
+  | "insumo"
+  | "consumible"
+  | "epp"
+  | "equipo"
+  | "otro";
+export type InventoryMovementType =
+  | "entrada"
+  | "salida"
+  | "ajuste"
+  | "merma"
+  | "transferencia";
+
 // ─────────────────────────────────────────────────────────────
 // Helper para declarar tablas de forma compacta
 // ─────────────────────────────────────────────────────────────
@@ -465,8 +479,99 @@ export interface Database {
         contexto: Json | null;
         created_at: string;
       }>;
+      LIS_inventory_items: Table<{
+        id: string;
+        organization_id: string;
+        codigo: string;
+        nombre: string;
+        descripcion: string | null;
+        categoria: string | null;
+        tipo: InventoryItemType;
+        unidad: string;
+        stock_minimo: number;
+        stock_maximo: number | null;
+        requiere_refrigeracion: boolean;
+        controlado: boolean;
+        ubicacion: string | null;
+        proveedor: string | null;
+        codigo_barras: string | null;
+        costo_referencia: number | null;
+        imagen_url: string | null;
+        imagenes: Json;
+        activo: boolean;
+        created_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_inventory_stock: Table<{
+        id: string;
+        organization_id: string;
+        item_id: string;
+        sede_id: string;
+        lote: string | null;
+        vencimiento: string | null;
+        cantidad: number;
+        updated_at: string;
+      }>;
+      LIS_inventory_movements: Table<{
+        id: string;
+        organization_id: string;
+        item_id: string;
+        sede_id: string;
+        tipo: InventoryMovementType;
+        cantidad: number;
+        delta: number;
+        stock_resultante: number;
+        lote: string | null;
+        vencimiento: string | null;
+        motivo: string | null;
+        referencia: string | null;
+        sede_destino_id: string | null;
+        costo_unitario: number | null;
+        created_by: string | null;
+        created_at: string;
+      }>;
     };
     Views: {
+      v_inventory_stock: {
+        Relationships: [];
+        Row: {
+          item_id: string;
+          organization_id: string;
+          sede_id: string | null;
+          codigo: string;
+          nombre: string;
+          categoria: string | null;
+          tipo: InventoryItemType;
+          unidad: string;
+          stock_minimo: number;
+          stock_maximo: number | null;
+          requiere_refrigeracion: boolean;
+          imagen_url: string | null;
+          activo: boolean;
+          stock: number;
+          lotes: number;
+          proximo_vencimiento: string | null;
+          estado: "ok" | "bajo" | "agotado";
+        };
+      };
+      v_inventory_expiring: {
+        Relationships: [];
+        Row: {
+          id: string;
+          organization_id: string;
+          sede_id: string;
+          item_id: string;
+          codigo: string;
+          nombre: string;
+          unidad: string;
+          sede_nombre: string;
+          lote: string | null;
+          vencimiento: string;
+          cantidad: number;
+          dias_para_vencer: number;
+        };
+      };
       v_agenda: {
         Relationships: [];
         Row: {
@@ -485,6 +590,8 @@ export interface Database {
           canal: string;
           notas: string | null;
           created_at: string;
+          created_by: string | null;
+          creado_por: string | null;
           sede_nombre: string;
           paciente: string;
           tipo_documento: string;
@@ -493,6 +600,19 @@ export interface Database {
           sexo: Sex;
           fecha_nacimiento: string | null;
           order_codigo: string | null;
+        };
+      };
+      v_order_item_authors: {
+        Relationships: [];
+        Row: {
+          order_item_id: string;
+          order_id: string;
+          ingresado_por: string | null;
+          analista_nombre: string | null;
+          ingresado_at: string | null;
+          validado_por: string | null;
+          validador_nombre: string | null;
+          validado_at: string | null;
         };
       };
       v_order_overview: {
@@ -531,6 +651,21 @@ export interface Database {
           p_observaciones?: string | null;
         };
         Returns: Database["public"]["Tables"]["LIS_orders"]["Row"];
+      };
+      inventory_register_movement: {
+        Args: {
+          p_item_id: string;
+          p_sede_id: string;
+          p_tipo: InventoryMovementType;
+          p_cantidad: number;
+          p_lote?: string | null;
+          p_vencimiento?: string | null;
+          p_motivo?: string | null;
+          p_referencia?: string | null;
+          p_sede_destino_id?: string | null;
+          p_costo_unitario?: number | null;
+        };
+        Returns: Database["public"]["Tables"]["LIS_inventory_movements"]["Row"];
       };
       upsert_result: {
         Args: {

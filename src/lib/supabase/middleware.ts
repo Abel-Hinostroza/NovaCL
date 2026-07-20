@@ -12,8 +12,19 @@ const PUBLIC_PATHS = [
   "/auth",
 ];
 
+const ASSET_PATH_REGEX = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|woff|woff2)$/i;
+
+function shouldBypassAuth(pathname: string) {
+  return pathname.startsWith("/_next/") || pathname === "/favicon.ico" || ASSET_PATH_REGEX.test(pathname);
+}
+
 /** Refresca la sesion y protege las rutas privadas. */
 export async function updateSession(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  if (shouldBypassAuth(path)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
@@ -41,7 +52,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
 
   if (!user && !isPublic) {

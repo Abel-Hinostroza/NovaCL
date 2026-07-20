@@ -6,6 +6,8 @@ import type {
   SampleStatus,
   ResultFlag,
   AppointmentStatus,
+  InventoryItemType,
+  InventoryMovementType,
 } from "@/lib/database.types";
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -118,3 +120,41 @@ export const ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => 
   value: value as Role,
   label,
 }));
+
+// ── Inventario ───────────────────────────────────────────────
+export const INVENTORY_TYPE_LABELS: Record<InventoryItemType, string> = {
+  reactivo: "Reactivo",
+  insumo: "Insumo",
+  consumible: "Consumible",
+  epp: "EPP",
+  equipo: "Equipo",
+  otro: "Otro",
+};
+
+export const INVENTORY_MOVEMENT_LABELS: Record<InventoryMovementType, string> = {
+  entrada: "Entrada",
+  salida: "Salida",
+  ajuste: "Ajuste",
+  merma: "Merma",
+  transferencia: "Transferencia",
+};
+
+export const INVENTORY_MOVEMENT_COLORS: Record<InventoryMovementType, string> = {
+  entrada: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  salida: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  ajuste: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  merma: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  transferencia: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+};
+
+export const INVENTORY_ESTADO_LABELS: Record<string, string> = {
+  ok: "En stock",
+  bajo: "Stock bajo",
+  agotado: "Agotado",
+};
+
+export const INVENTORY_ESTADO_COLORS: Record<string, string> = {
+  ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  bajo: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  agotado: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+};

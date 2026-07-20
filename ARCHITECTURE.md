@@ -61,6 +61,8 @@ Migraciones en `supabase/migrations/` (orden numérico):
 | `0010_views_rpc` | Vista `v_order_overview`, RPC `create_order`, `bootstrap_organization`, `order_timeline`. |
 | `0011_scheduling` | `LIS_appointments` (citas), enum `appointment_status`, vista `v_agenda`, RLS y auditoría. |
 | `0012_analytics` | RPCs de agregación `analytics_*` (resumen, serie diaria, top estudios, categorías, estados, sedes, facturación) con `security invoker` (respetan RLS). |
+| `0017_authorship_audit` | Trigger de auditoría consciente de la **sede** (deriva org/sede de la fila o de la orden/ítem/muestra padre); `v_agenda` expone el autor de la cita; vista `v_order_item_authors` (tecnólogo que ingresó y validó cada estudio); auditoría extendida al catálogo, ítems de muestra, sedes, informes e integraciones. |
+| `0018_inventory` | Inventario: `LIS_inventory_items`, `LIS_inventory_stock` (por sede/lote/vencimiento), `LIS_inventory_movements`; RPC `inventory_register_movement` (atómico), vistas `v_inventory_stock` y `v_inventory_expiring`; bucket público `inventory` para fotos; RLS y auditoría. |
 
 ### Diagrama lógico (resumen)
 
@@ -109,7 +111,12 @@ Patrón general de políticas:
 - **Catálogo:** las plantillas globales (`organization_id IS NULL`) son visibles
   para todos; solo se editan las propias de la organización.
 - **Auditoría:** lectura para admin/lectura; nunca escritura vía API (solo el
-  trigger, que corre como definer).
+  trigger, que corre como definer). Desde `0017` el trigger genérico registra la
+  **sede** de cada evento, de modo que Trazabilidad puede filtrar la actividad de
+  los usuarios por sede. La autoría clínica ya vivía en las tablas
+  (`LIS_appointments.created_by`, `LIS_results.ingresado_por/validado_por`) y
+  ahora se muestra en la UI (agenda y detalle de orden) vía `v_agenda` y
+  `v_order_item_authors`.
 
 ---
 

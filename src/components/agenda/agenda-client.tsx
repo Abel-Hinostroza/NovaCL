@@ -20,6 +20,7 @@ import {
   Phone,
   Stethoscope,
   User,
+  UserCheck,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -559,6 +560,12 @@ function CitaBubble({ cita: c }: { cita: Cita }) {
           : "Sin estudios preseleccionados"}
         {c.order_codigo && ` · Orden ${c.order_codigo}`}
       </p>
+      {c.creado_por && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserCheck className="h-3 w-3 text-primary" />
+          Agendada por {c.creado_por}
+        </div>
+      )}
       <p className="border-t pt-1.5 text-[11px] text-muted-foreground">
         Clic para ver acciones
       </p>
@@ -1063,6 +1070,18 @@ function DetalleDialog({
               ? `${c.study_ids.length} estudio${c.study_ids.length !== 1 ? "s" : ""} preseleccionado${c.study_ids.length !== 1 ? "s" : ""}`
               : "Sin estudios preseleccionados"}
           </p>
+          <div className="flex items-center gap-2 border-t pt-2 text-xs text-muted-foreground">
+            <UserCheck className="h-4 w-4 text-primary" />
+            {c.creado_por ? (
+              <span>
+                Agendada por <span className="font-medium text-foreground">{c.creado_por}</span>
+                {" · "}
+                {format(new Date(c.created_at), "d MMM yyyy, HH:mm", { locale: es })}
+              </span>
+            ) : (
+              <span>Autor no registrado</span>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">

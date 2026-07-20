@@ -13,6 +13,7 @@ import {
   History,
   Settings,
   FolderTree,
+  Boxes,
 } from "lucide-react";
 
 export const NAV_ICONS = {
@@ -28,6 +29,7 @@ export const NAV_ICONS = {
   History,
   Settings,
   FolderTree,
+  Boxes,
 };
 
 export type NavItem = {
@@ -50,6 +52,7 @@ export const NAV: NavSection[] = [
       { label: "Muestras", href: "/muestras", icon: "TestTube2", roles: ["org_admin", "sede_admin", "toma_muestra", "analista", "recepcion"] },
       { label: "Resultados", href: "/resultados", icon: "FlaskConical", roles: ["org_admin", "sede_admin", "analista", "validador", "medico"] },
       { label: "Entrega", href: "/entrega", icon: "Send", roles: ["org_admin", "sede_admin", "recepcion", "validador"] },
+      { label: "Inventario", href: "/inventario", icon: "Boxes", roles: ["org_admin", "sede_admin", "analista", "toma_muestra", "recepcion", "lectura"] },
     ],
   },
   {

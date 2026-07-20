@@ -48,7 +48,7 @@ export default async function OrderDetailPage({
     email: string | null;
   };
 
-  const [{ data: items }, { data: samples }, { data: timeline }, { data: reportDocs }] =
+  const [{ data: items }, { data: samples }, { data: timeline }, { data: reportDocs }, { data: authors }] =
     await Promise.all([
       supabase
         .from("LIS_order_items")
@@ -66,7 +66,16 @@ export default async function OrderDetailPage({
         .select("id, version, storage_path, created_at")
         .eq("order_id", id)
         .order("version", { ascending: false }),
+      supabase
+        .from("v_order_item_authors")
+        .select("order_item_id, analista_nombre, validador_nombre")
+        .eq("order_id", id),
     ]);
+
+  // Tecnólogo que ingresó el resultado y quién lo validó, por estudio
+  const authorByItem = new Map(
+    (authors ?? []).map((a) => [a.order_item_id, a])
+  );
 
   // Catálogo para add-on tests (solo si la orden aún admite agregados)
   const canAddStudies =
@@ -190,22 +199,45 @@ export default async function OrderDetailPage({
                     <TableHead>Código</TableHead>
                     <TableHead>Estudio</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Tecnólogo / Validador</TableHead>
                     <TableHead className="text-right">Precio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items?.map((it) => (
-                    <TableRow key={it.id}>
-                      <TableCell className="text-sm">{it.study_codigo}</TableCell>
-                      <TableCell className="font-medium">{it.study_nombre}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-muted text-foreground">
-                          {ITEM_STATUS_LABELS[it.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right text-sm">{formatMoney(it.precio)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {items?.map((it) => {
+                    const autor = authorByItem.get(it.id);
+                    return (
+                      <TableRow key={it.id}>
+                        <TableCell className="text-sm">{it.study_codigo}</TableCell>
+                        <TableCell className="font-medium">{it.study_nombre}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-muted text-foreground">
+                            {ITEM_STATUS_LABELS[it.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {autor?.analista_nombre || autor?.validador_nombre ? (
+                            <div className="flex flex-col gap-0.5">
+                              {autor?.analista_nombre && (
+                                <span className="flex items-center gap-1.5">
+                                  <FlaskConical className="h-3 w-3 text-primary" />
+                                  {autor.analista_nombre}
+                                </span>
+                              )}
+                              {autor?.validador_nombre && (
+                                <span className="text-xs text-muted-foreground">
+                                  Validó: {autor.validador_nombre}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Sin procesar</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">{formatMoney(it.precio)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
