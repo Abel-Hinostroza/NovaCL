@@ -1,7 +1,12 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Role } from "@/lib/database.types";
+import type { Role } from "@/lib/database.types";
 
-type DB = SupabaseClient<Database>;
+export type PermissionRow = {
+  sede_id: string | null;
+  role: Role;
+  module: string;
+  can_view: boolean;
+  can_edit: boolean;
+};
 
 /**
  * Permisos granulares por módulo.
@@ -94,14 +99,18 @@ export const ALL_ALLOWED: PermissionMap = MODULES.reduce((acc, m) => {
  * Permisos efectivos del usuario para la sede activa: defaults del sistema +
  * sobrescrituras de la organización (org-wide y de sede). Unión permisiva
  * entre los roles del usuario.
+ *
+ * Puro y síncrono: las filas de LIS_role_permissions ya vienen incluidas en
+ * el bundle de sesión (ver get_session_bundle / getSessionContext), así que
+ * esto ya no hace ningún query — se puede llamar tantas veces como haga
+ * falta (sidebar, guards de página) sin costo de red.
  */
-export async function getEffectivePermissions(
-  supabase: DB,
-  orgId: string,
+export function computeEffectivePermissions(
+  rows: PermissionRow[],
   sedeId: string | null,
   roles: Role[],
   isSuperadmin: boolean
-): Promise<PermissionMap> {
+): PermissionMap {
   if (isSuperadmin) return ALL_ALLOWED;
   if (roles.length === 0) {
     return MODULES.reduce((acc, m) => {
@@ -110,15 +119,9 @@ export async function getEffectivePermissions(
     }, {} as PermissionMap);
   }
 
-  const { data: rows } = await supabase
-    .from("LIS_role_permissions")
-    .select("sede_id, role, module, can_view, can_edit")
-    .eq("organization_id", orgId)
-    .in("role", roles);
-
   // Por rol y módulo: la fila de la sede activa pisa a la de toda la org
   const overrides = new Map<string, { view: boolean; edit: boolean; scope: "org" | "sede" }>();
-  for (const r of rows ?? []) {
+  for (const r of rows) {
     if (r.sede_id !== null && r.sede_id !== sedeId) continue;
     const key = `${r.role}:${r.module}`;
     const scope = r.sede_id === null ? "org" : "sede";

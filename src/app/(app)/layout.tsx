@@ -1,6 +1,4 @@
 import { getSessionContext } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
-import { getEffectivePermissions } from "@/lib/permissions";
 import { visibleNav } from "@/lib/nav";
 import { ROLE_LABELS } from "@/lib/constants";
 import { Sidebar } from "@/components/shell/sidebar";
@@ -19,16 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const isSuper = ctx.profile?.es_superadmin ?? false;
-  const supabase = await createClient();
-  const perms = await getEffectivePermissions(
-    supabase,
-    ctx.activeOrgId!,
-    ctx.activeSedeId,
-    ctx.roles,
-    isSuper
-  );
-  const sections = visibleNav(perms);
+  const sections = visibleNav(ctx.perms);
   const roleLabel = ctx.roles[0] ? ROLE_LABELS[ctx.roles[0]] : "Miembro";
 
   return (

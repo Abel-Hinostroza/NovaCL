@@ -18,12 +18,24 @@ function shouldBypassAuth(pathname: string) {
   return pathname.startsWith("/_next/") || pathname === "/favicon.ico" || ASSET_PATH_REGEX.test(pathname);
 }
 
+/**
+ * Headers confiables que src/lib/auth/session.ts usa para no repetir
+ * auth.getUser() (round-trip a GoTrue) en cada Server Component. Se borra
+ * cualquier valor entrante antes de recalcularlos: un cliente nunca puede
+ * hacerse pasar por otro usuario a traves de estos headers.
+ */
+const TRUSTED_USER_ID_HEADER = "x-nova-user-id";
+const TRUSTED_USER_EMAIL_HEADER = "x-nova-user-email";
+
 /** Refresca la sesion y protege las rutas privadas. */
 export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   if (shouldBypassAuth(path)) {
     return NextResponse.next({ request });
   }
+
+  request.headers.delete(TRUSTED_USER_ID_HEADER);
+  request.headers.delete(TRUSTED_USER_EMAIL_HEADER);
 
   let response = NextResponse.next({ request });
 
@@ -59,6 +71,16 @@ export async function updateSession(request: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
+  }
+
+  if (user) {
+    request.headers.set(TRUSTED_USER_ID_HEADER, user.id);
+    request.headers.set(TRUSTED_USER_EMAIL_HEADER, user.email ?? "");
+    // Reconstruir la respuesta para propagar los headers sin perder las
+    // cookies de refresh de sesion seteadas arriba.
+    const cookiesSoFar = response.cookies.getAll();
+    response = NextResponse.next({ request });
+    cookiesSoFar.forEach((c) => response.cookies.set(c));
   }
 
   return response;

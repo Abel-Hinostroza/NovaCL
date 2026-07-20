@@ -686,6 +686,10 @@ export interface Database {
         Args: { p_order_id: string };
         Returns: Database["public"]["Tables"]["LIS_audit_log"]["Row"][];
       };
+      get_session_bundle: {
+        Args: { p_org_cookie?: string | null; p_sede_cookie?: string | null };
+        Returns: Json;
+      };
       analytics_summary: {
         Args: { p_desde: string; p_hasta: string; p_sede_id?: string | null };
         Returns: Json;
