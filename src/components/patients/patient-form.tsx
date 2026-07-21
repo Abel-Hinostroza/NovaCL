@@ -1,12 +1,10 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
 import { savePatientAction, type PatientFormState } from "@/lib/actions/patients";
-import { Button } from "@/components/ui/button";
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,16 +23,6 @@ const DOC_PATTERNS: Record<string, string> = {
   OTRO: ".{3,40}",
 };
 
-function Submit({ edit }: { edit: boolean }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      {edit ? "Guardar cambios" : "Registrar paciente"}
-    </Button>
-  );
-}
-
 export function PatientForm({
   patient,
   onDone,
@@ -49,12 +37,25 @@ export function PatientForm({
   );
   const [tipoDoc, setTipoDoc] = useState<string>(patient?.tipo_documento ?? "DNI");
   const today = new Date().toISOString().slice(0, 10);
+  const [showClinical, setShowClinical] = useState(false);
 
   useEffect(() => {
     if (state?.ok && state.id) {
-      toast.success(patient ? "Paciente actualizado" : "Paciente registrado");
+      const msg = state.warning
+        ? `Paciente ${patient ? "actualizado" : "registrado"} con advertencia: ${state.warning}`
+        : patient
+        ? "Paciente actualizado"
+        : "Paciente registrado";
+      if (state.warning) toast.warning(msg);
+      else toast.success(msg);
       if (onDone) onDone(state.id);
       else router.refresh();
+    } else if (state?.error) {
+      toast.error(state.error);
+      if (state.fieldErrors) {
+        const first = Object.values(state.fieldErrors)[0];
+        if (first) toast.warning(first, { description: "Revisa el campo marcado." });
+      }
     }
   }, [state, onDone, patient, router]);
 
@@ -167,72 +168,101 @@ export function PatientForm({
 
       {/* Datos clínicos y de seguridad */}
       <div className="space-y-4 rounded-lg border p-4">
-        <p className="text-sm font-medium">Datos clínicos y de seguridad</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="grupo_sanguineo">Grupo sanguíneo y Rh</Label>
-            <Select name="grupo_sanguineo" defaultValue={patient?.grupo_sanguineo ?? "desconocido"}>
-              <SelectTrigger id="grupo_sanguineo">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="desconocido">No determinado</SelectItem>
-                {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map((g) => (
-                  <SelectItem key={g} value={g}>
-                    {g}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between text-sm font-medium hover:underline"
+          onClick={() => setShowClinical((v) => !v)}
+          aria-expanded={showClinical}
+          aria-controls={`clinical-section-${patient?.id ?? "new"}`}
+        >
+          <span>Datos clínicos y de seguridad</span>
+          <span className="text-xs text-muted-foreground">
+            {showClinical ? "Ocultar" : "Mostrar"}
+          </span>
+        </button>
+        <p className="text-xs text-muted-foreground">
+          Sensibles: solo visibles si los necesitas. Se guardan en el mismo registro.
+        </p>
+        {showClinical && (
+          <div
+            id={`clinical-section-${patient?.id ?? "new"}`}
+            className="grid gap-4 sm:grid-cols-2"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="grupo_sanguineo">Grupo sanguíneo y Rh</Label>
+              <Select name="grupo_sanguineo" defaultValue={patient?.grupo_sanguineo ?? "desconocido"}>
+                <SelectTrigger id="grupo_sanguineo">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desconocido">No determinado</SelectItem>
+                  {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map((g) => (
+                    <SelectItem key={g} value={g}>
+                      {g}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="seguro">Seguro / financiador</Label>
+              <Input
+                id="seguro"
+                name="seguro"
+                defaultValue={patient?.seguro ?? ""}
+                placeholder="EsSalud, SIS, EPS, particular…"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="alergias">Alergias conocidas</Label>
+              <Textarea
+                id="alergias"
+                name="alergias"
+                defaultValue={patient?.alergias ?? ""}
+                placeholder="Ej. penicilina, látex, medio de contraste yodado…"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="antecedentes">Antecedentes</Label>
+              <Textarea
+                id="antecedentes"
+                name="antecedentes"
+                defaultValue={patient?.antecedentes ?? ""}
+                placeholder="Personales / familiares relevantes"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contacto_emergencia">Contacto de emergencia</Label>
+              <Input
+                id="contacto_emergencia"
+                name="contacto_emergencia"
+                defaultValue={patient?.contacto_emergencia ?? ""}
+                placeholder="Nombre y teléfono"
+                maxLength={200}
+              />
+              {fe.contacto_emergencia && (
+                <p className="text-xs text-destructive">{fe.contacto_emergencia}</p>
+              )}
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="seguro">Seguro / financiador</Label>
-            <Input
-              id="seguro"
-              name="seguro"
-              defaultValue={patient?.seguro ?? ""}
-              placeholder="EsSalud, SIS, EPS, particular…"
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="alergias">Alergias conocidas</Label>
-          <Textarea
-            id="alergias"
-            name="alergias"
-            defaultValue={patient?.alergias ?? ""}
-            placeholder="Ej. penicilina, látex, medio de contraste yodado…"
-          />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="antecedentes">Antecedentes</Label>
-            <Textarea
-              id="antecedentes"
-              name="antecedentes"
-              defaultValue={patient?.antecedentes ?? ""}
-              placeholder="Personales / familiares relevantes"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="contacto_emergencia">Contacto de emergencia</Label>
-            <Input
-              id="contacto_emergencia"
-              name="contacto_emergencia"
-              defaultValue={patient?.contacto_emergencia ?? ""}
-              placeholder="Nombre y teléfono"
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       {state?.error && !state.fieldErrors && (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{state.error}</p>
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {state.error}
+        </p>
+      )}
+      {state?.warning && (
+        <p className="rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          {state.warning}
+        </p>
       )}
 
-      <div className="flex justify-end">
-        <Submit edit={!!patient} />
-      </div>
+      <StickyFormActions
+        label={patient ? "Guardar cambios" : "Registrar paciente"}
+        busyLabel="Guardando…"
+      />
     </form>
   );
 }

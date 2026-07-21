@@ -18,7 +18,7 @@ export default function LoginPage() {
         aria-hidden
         fill
         priority
-        className="pointer-events-none object-cover object-[32%_45%] opacity-95"
+        className="pointer-events-none scale-105 object-cover object-[32%_45%] opacity-95 blur-[2px]"
       />
 
       {/* Velo de marca: tinte sutil que da elegancia sin ocultar la fotografía */}
@@ -109,23 +109,38 @@ export default function LoginPage() {
             el "backdrop-blur" de la tarjeta: un ancestro con transform crea
             su propia raíz de fondo y el vidrio dejaría de ver la foto. */}
         <div className="relative -mt-6 w-full max-w-sm animate-fade-in">
-          {/* Resplandor ambiental bajo la tarjeta */}
+          {/* Sombra en degradado: dos capas suaves (teal → azul → violeta)
+              muy desenfocadas por detrás de la tarjeta para simular una
+              proyección de color de la luz que pasa por el vidrio. */}
           <div
             aria-hidden
-            className="absolute -inset-6 -z-10 rounded-4xl bg-primary/30 blur-3xl"
+            className="pointer-events-none absolute -inset-8 -z-10 rounded-[2.5rem] opacity-70 blur-3xl"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(20,184,166,0.55) 0%, rgba(56,189,248,0.35) 45%, rgba(139,92,246,0.35) 100%)",
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-4 -z-10 rounded-4xl opacity-60 blur-2xl"
+            style={{
+              background:
+                "linear-gradient(315deg, rgba(6,182,212,0.45) 0%, rgba(20,184,166,0.25) 60%, rgba(2,132,199,0.4) 100%)",
+            }}
           />
 
-          {/* Filo de vidrio: borde en degradado que simula la refracción de luz */}
-          <div className="flex min-h-[min(46rem,80vh)] flex-col rounded-[1.75rem] bg-linear-to-br from-white/35 via-white/10 to-black/20 p-px shadow-2xl shadow-black/45">
+          {/* Filo de vidrio: borde en degradado que simula la refracción de luz.
+              La altura se ajusta al contenido con un mínimo cómodo (sin exceso). */}
+          <div className="flex min-h-[min(32rem,68vh)] flex-col rounded-[1.75rem] bg-linear-to-br from-white/35 via-white/10 to-black/20 p-px shadow-2xl shadow-black/45">
             {/* Importante: este contenedor NO lleva "background-color" propio.
                 Si el elemento con "backdrop-filter" también tiene un fondo
                 semitransparente, algunos motores dejan de renderizar el
                 desenfoque; por eso el tinte oscuro va en una capa aparte,
                 pintada encima del vidrio ya desenfocado. */}
             <div className="relative flex flex-1 flex-col overflow-hidden rounded-[1.7rem] backdrop-blur-3xl backdrop-saturate-150">
-              {/* Tinte oscuro sobre el vidrio ya desenfocado: algo más
-                  transparente para dejar entrever mejor la foto de fondo. */}
-              <div aria-hidden className="pointer-events-none absolute inset-0 bg-black/30" />
+              {/* Tinte oscuro sobre el vidrio ya desenfocado: más intenso
+                  para dar profundidad y mejorar el contraste del formulario. */}
+              <div aria-hidden className="pointer-events-none absolute inset-0 bg-black/55" />
               {/* Barniz diagonal: luz atravesando el vidrio */}
               <div
                 aria-hidden
@@ -147,7 +162,7 @@ export default function LoginPage() {
                 className="pointer-events-none absolute -bottom-20 -left-16 h-48 w-48 rounded-full bg-primary/35 blur-3xl"
               />
 
-              <div className="relative flex flex-1 flex-col justify-center space-y-6 p-8 sm:p-9">
+              <div className="relative flex flex-1 flex-col justify-center gap-7 p-8 sm:p-9">
                 {/* Isotipo compacto en móvil */}
                 <div className="flex flex-col items-center gap-3 text-center lg:hidden">
                   <div className="relative">
@@ -166,12 +181,12 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5 text-center lg:text-left">
+                <div className="space-y-1.5 text-center">
                   <h2 className="text-2xl font-semibold tracking-tight text-white">
                     Iniciar sesión
                   </h2>
                   <p className="text-sm text-white/65">
-                    Accede con tus credenciales corporativas.
+                    Accede con tus credenciales.
                   </p>
                 </div>
 
@@ -179,7 +194,7 @@ export default function LoginPage() {
                   <LoginForm />
                 </Suspense>
 
-                <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-white/55 lg:justify-start">
+                <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-white/55">
                   <Lock className="h-3 w-3" />
                   Acceso restringido · Uso profesional
                 </p>

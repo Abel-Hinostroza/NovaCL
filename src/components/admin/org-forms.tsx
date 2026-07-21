@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Plus, Power, Building2 } from "lucide-react";
@@ -31,16 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_OPTIONS, ROLE_LABELS } from "@/lib/constants";
-
-function SubmitBtn({ children }: { children: React.ReactNode }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      {children}
-    </Button>
-  );
-}
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 
 function useToastEffect(
   state: OrgFormState | SedeFormState | undefined,
@@ -221,12 +211,14 @@ export function CreateOrganizationButton() {
             />
             <label htmlFor="activo-check">Activa al crear</label>
           </div>
-          <DialogFooter className="sm:col-span-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <SubmitBtn>Crear</SubmitBtn>
-          </DialogFooter>
+          <div className="sm:col-span-2">
+            <StickyFormActions
+              placement="inline"
+              label="Crear organización"
+              busyLabel="Creando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -330,12 +322,14 @@ export function EditOrganizationButton({
             />
             <label htmlFor={`activo-edit-${org.id}`}>Activa</label>
           </div>
-          <DialogFooter className="sm:col-span-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <SubmitBtn>Guardar</SubmitBtn>
-          </DialogFooter>
+          <div className="sm:col-span-2">
+            <StickyFormActions
+              placement="inline"
+              label="Guardar"
+              busyLabel="Guardando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -483,12 +477,14 @@ export function CreateSedeButton({ orgId }: { orgId: string }) {
             />
             <label htmlFor={`activa-${orgId}`}>Activa</label>
           </div>
-          <DialogFooter className="sm:col-span-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <SubmitBtn>Crear</SubmitBtn>
-          </DialogFooter>
+          <div className="sm:col-span-2">
+            <StickyFormActions
+              placement="inline"
+              label="Crear sede"
+              busyLabel="Creando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -593,12 +589,14 @@ export function EditSedeButton({
             />
             <label htmlFor={`activa-${sede.id}`}>Activa</label>
           </div>
-          <DialogFooter className="sm:col-span-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <SubmitBtn>Guardar</SubmitBtn>
-          </DialogFooter>
+          <div className="sm:col-span-2">
+            <StickyFormActions
+              placement="inline"
+              label="Guardar"
+              busyLabel="Guardando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
+          </div>
         </form>
       </DialogContent>
     </Dialog>

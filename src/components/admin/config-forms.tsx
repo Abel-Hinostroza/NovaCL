@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Trash2, Power } from "lucide-react";
@@ -24,16 +23,7 @@ import {
 } from "@/components/ui/select";
 import { ROLE_OPTIONS } from "@/lib/constants";
 import { codeFromName } from "@/lib/text/slug";
-
-function SubmitBtn({ children }: { children: React.ReactNode }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      {children}
-    </Button>
-  );
-}
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 
 function useToastAction(
   state: { ok?: boolean; id?: string; error?: string } | undefined,
@@ -104,7 +94,7 @@ export function SedeForm() {
         <Label htmlFor="direccion">Dirección</Label>
         <Input id="direccion" name="direccion" />
       </div>
-      <SubmitBtn>Crear sede</SubmitBtn>
+      <StickyFormActions label="Crear sede" busyLabel="Creando…" />
     </form>
   );
 }
@@ -171,7 +161,7 @@ export function MemberForm({ sedes }: { sedes: { id: string; nombre: string }[] 
           </SelectContent>
         </Select>
       </div>
-      <SubmitBtn>Asignar rol</SubmitBtn>
+      <StickyFormActions label="Asignar rol" busyLabel="Asignando…" />
     </form>
   );
 }
@@ -276,7 +266,7 @@ export function BillingForm({
         Las credenciales (API key) se toman de variables de entorno del servidor
         (WALLY_API_KEY). Sin credenciales, la emisión funciona en modo simulación.
       </p>
-      <SubmitBtn>Guardar</SubmitBtn>
+      <StickyFormActions label="Guardar" busyLabel="Guardando…" />
     </form>
   );
 }

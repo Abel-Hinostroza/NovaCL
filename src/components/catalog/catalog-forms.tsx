@@ -1,10 +1,9 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, Plus, Pencil, FlaskConical, FolderPlus } from "lucide-react";
+import { Plus, Pencil, FlaskConical, FolderPlus } from "lucide-react";
 import {
   saveCategoryAction,
   saveAnalyteAction,
@@ -30,19 +29,10 @@ import {
 } from "@/components/ui/select";
 import { codeFromName } from "@/lib/text/slug";
 import { cn } from "@/lib/utils";
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 
 export type Option = { id: string; nombre: string; codigo?: string };
 export type AnalyteOption = Option & { unidad: string | null };
-
-function SubmitBtn({ children }: { children: React.ReactNode }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      {children}
-    </Button>
-  );
-}
 
 function useCloseOnOk(
   state: { ok?: boolean; id?: string; error?: string } | undefined,
@@ -124,7 +114,12 @@ export function CategoryDialog() {
             </div>
           </div>
           <div className="flex justify-end">
-            <SubmitBtn>Crear</SubmitBtn>
+            <StickyFormActions
+              placement="inline"
+              label="Crear categoría"
+              busyLabel="Creando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
           </div>
         </form>
       </DialogContent>
@@ -289,7 +284,12 @@ export function AnalyteDialog({
             </div>
           )}
           <div className="flex justify-end">
-            <SubmitBtn>{analyte ? "Guardar" : "Crear analito"}</SubmitBtn>
+            <StickyFormActions
+              placement="inline"
+              label={analyte ? "Guardar" : "Crear analito"}
+              busyLabel="Guardando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
           </div>
         </form>
       </DialogContent>
@@ -479,7 +479,12 @@ export function StudyDialog({
           </div>
 
           <div className="flex justify-end">
-            <SubmitBtn>{study ? "Guardar estudio" : "Crear estudio"}</SubmitBtn>
+            <StickyFormActions
+              placement="inline"
+              label={study ? "Guardar estudio" : "Crear estudio"}
+              busyLabel="Guardando…"
+              cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
+            />
           </div>
         </form>
       </DialogContent>

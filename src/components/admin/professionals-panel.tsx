@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Power, Plus, Stethoscope } from "lucide-react";
@@ -25,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 import {
   PROFESSIONAL_TYPES,
   colegioFor,
@@ -34,16 +34,6 @@ import {
 import type { Tables } from "@/lib/database.types";
 
 type Professional = Tables<"LIS_professionals">;
-
-function SubmitBtn() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      Guardar
-    </Button>
-  );
-}
 
 function ProfessionalForm({ professional, onDone }: { professional?: Professional; onDone: () => void }) {
   const router = useRouter();
@@ -148,7 +138,7 @@ function ProfessionalForm({ professional, onDone }: { professional?: Professiona
       </label>
 
       <div className="flex justify-end">
-        <SubmitBtn />
+        <StickyFormActions label="Guardar profesional" busyLabel="Guardando…" />
       </div>
     </form>
   );

@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Loader2, Mail } from "lucide-react";
 import { signInAction, type ActionState } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,19 +30,32 @@ export function LoginForm() {
       <input type="hidden" name="next" value={next} />
       <div className="space-y-2">
         <Label htmlFor="email" className="text-white/85">Correo electrónico</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          placeholder="tu@clinica.com"
-          required
-          autoComplete="email"
-          className="border-white/20 bg-white/10 text-white placeholder:text-white/40 focus-visible:bg-white/15 focus-visible:ring-white/40"
-        />
+        {/* Contenedor con "focus-within": cuando el input recibe foco, el
+            grupo gana un halo sutil y el icono se ilumina, ofreciendo un
+            feedback vivo mientras el usuario completa el formulario. */}
+        <div className="group relative rounded-md ring-1 ring-transparent transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/50 focus-within:shadow-[0_0_0_4px_rgba(20,184,166,0.12)]">
+          <Mail
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-white/45 transition-colors duration-200 group-focus-within:text-cyan-300"
+          />
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            placeholder="tu@clinica.com"
+            required
+            autoComplete="email"
+            className="liquid-input border-white/15 bg-black/30 pl-9 text-white shadow-none placeholder:text-white/40 focus-visible:bg-black/40 focus-visible:ring-0"
+          />
+        </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="password" className="text-white/85">Contraseña</Label>
-        <div className="relative">
+        <div className="group relative rounded-md ring-1 ring-transparent transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/50 focus-within:shadow-[0_0_0_4px_rgba(20,184,166,0.12)]">
+          <KeyRound
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-white/45 transition-colors duration-200 group-focus-within:text-cyan-300"
+          />
           <Input
             id="password"
             name="password"
@@ -50,7 +63,7 @@ export function LoginForm() {
             placeholder="••••••••"
             required
             autoComplete="current-password"
-            className="border-white/20 bg-white/10 pr-10 text-white placeholder:text-white/40 focus-visible:bg-white/15 focus-visible:ring-white/40"
+            className="liquid-input border-white/15 bg-black/30 pl-9 pr-10 text-white shadow-none placeholder:text-white/40 focus-visible:bg-black/40 focus-visible:ring-0"
           />
           <button
             type="button"

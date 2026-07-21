@@ -429,3 +429,21 @@ body {
     background: #fff !important;
   }
 }
+
+/* Autocompletado en la tarjeta de vidrio del login.
+   Chrome/Safari inyectan un fondo blanco muy claro cuando el navegador
+   rellena un input; esto rompe el contraste con los iconos y el diseño.
+   Redeclaramos el fondo con un "inset shadow" oscuro y forzamos el color
+   del texto en blanco. Necesita !important porque los estilos de Chrome
+   se aplican con especificidad de user-agent. */
+.liquid-input:-webkit-autofill,
+.liquid-input:-webkit-autofill:hover,
+.liquid-input:-webkit-autofill:focus,
+.liquid-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.45) inset !important;
+  box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.45) inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}

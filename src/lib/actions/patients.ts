@@ -88,7 +88,13 @@ const patientSchema = z
   );
 
 export type PatientFormState =
-  | { error?: string; fieldErrors?: Record<string, string>; ok?: boolean; id?: string }
+  | {
+      error?: string;
+      warning?: string;
+      fieldErrors?: Record<string, string>;
+      ok?: boolean;
+      id?: string;
+    }
   | undefined;
 
 export async function savePatientAction(

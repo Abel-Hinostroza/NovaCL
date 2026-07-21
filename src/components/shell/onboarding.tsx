@@ -1,25 +1,14 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Building2, Loader2 } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { bootstrapOrgAction } from "@/lib/actions/organizations";
-import { Button } from "@/components/ui/button";
+import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signOutAction } from "@/lib/actions/auth";
-
-function Submit() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      Crear organización
-    </Button>
-  );
-}
 
 export function OnboardingCard({ email }: { email: string }) {
   const router = useRouter();
@@ -56,7 +45,7 @@ export function OnboardingCard({ email }: { email: string }) {
               {state.error}
             </p>
           )}
-          <Submit />
+          <StickyFormActions label="Crear organización" busyLabel="Creando…" />
         </form>
         <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
           <span>{email}</span>
