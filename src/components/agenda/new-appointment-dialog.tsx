@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ProfessionalPicker } from "@/components/professionals/professional-picker";
 import { cn, calcAge } from "@/lib/utils";
 
 export type StudyLite = { id: string; codigo: string; nombre: string };
@@ -68,6 +69,7 @@ export function NewAppointmentDialog({
   const [canal, setCanal] = useState("presencial");
   const [motivo, setMotivo] = useState("");
   const [medico, setMedico] = useState("");
+  const [medicoId, setMedicoId] = useState<string | null>(null);
   const [notas, setNotas] = useState("");
   const [studyFilter, setStudyFilter] = useState("");
   const [selStudies, setSelStudies] = useState<Set<string>>(new Set());
@@ -84,6 +86,7 @@ export function NewAppointmentDialog({
       setCanal("presencial");
       setMotivo("");
       setMedico("");
+      setMedicoId(null);
       setNotas("");
       setStudyFilter("");
       setSelStudies(new Set());
@@ -148,6 +151,7 @@ export function NewAppointmentDialog({
         canal: canal as "presencial" | "telefono" | "whatsapp" | "web",
         motivo,
         medico_solicitante: medico,
+        medico_solicitante_id: medicoId ?? "",
         notas,
         study_ids: [...selStudies],
       });
@@ -280,8 +284,19 @@ export function NewAppointmentDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cita-medico">Médico solicitante</Label>
-            <Input id="cita-medico" value={medico} onChange={(e) => setMedico(e.target.value)} placeholder="Dr(a)." />
+            <Label>Médico solicitante</Label>
+            <ProfessionalPicker
+              value={medicoId}
+              onChange={(id) => setMedicoId(id)}
+              freeText={medico}
+              onFreeTextChange={(t) => setMedico(t)}
+            />
+            <Input
+              value={medico}
+              onChange={(e) => setMedico(e.target.value)}
+              placeholder="O escribe manualmente…"
+              className="text-sm"
+            />
           </div>
         </div>
 

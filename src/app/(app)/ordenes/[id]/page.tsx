@@ -48,7 +48,7 @@ export default async function OrderDetailPage({
     email: string | null;
   };
 
-  const [{ data: items }, { data: samples }, { data: timeline }, { data: reportDocs }, { data: authors }] =
+  const [{ data: items }, { data: samples }, { data: timeline }, { data: reportDocs }, { data: authors }, { data: solProf }] =
     await Promise.all([
       supabase
         .from("LIS_order_items")
@@ -70,12 +70,31 @@ export default async function OrderDetailPage({
         .from("v_order_item_authors")
         .select("order_item_id, analista_nombre, validador_nombre")
         .eq("order_id", id),
+      order.medico_solicitante_id
+        ? supabase
+            .from("LIS_professionals")
+            .select("id, tipo, apellidos, nombres, numero_colegiatura, colegio, especialidad, externo")
+            .eq("id", order.medico_solicitante_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
   // Tecnólogo que ingresó el resultado y quién lo validó, por estudio
   const authorByItem = new Map(
     (authors ?? []).map((a) => [a.order_item_id, a])
   );
+
+  // Profesional vinculado: completa la colegiatura del médico solicitante
+  const solProfData = solProf as unknown as {
+    id: string;
+    tipo: string;
+    apellidos: string;
+    nombres: string;
+    numero_colegiatura: string | null;
+    colegio: string | null;
+    especialidad: string | null;
+    externo: boolean;
+  } | null;
 
   // Catálogo para add-on tests (solo si la orden aún admite agregados)
   const canAddStudies =
@@ -104,9 +123,23 @@ export default async function OrderDetailPage({
       })
   );
 
+  const medicoLabel = solProfData
+    ? `${solProfData.apellidos}, ${solProfData.nombres}`
+    : order.medico_solicitante ?? "—";
+  const medicoSub = [
+    solProfData?.numero_colegiatura
+      ? `${solProfData.colegio ?? ""} ${solProfData.numero_colegiatura}`.trim()
+      : null,
+    solProfData?.especialidad ?? null,
+    solProfData?.externo ? "Externo" : null,
+    order.diagnostico,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const meta = [
     { icon: User, label: "Paciente", value: `${patient.nombres} ${patient.apellidos}`, sub: `${patient.tipo_documento} ${patient.numero_documento} · ${calcAge(patient.fecha_nacimiento)}`, href: `/pacientes/${patient.id}` },
-    { icon: Stethoscope, label: "Médico", value: order.medico_solicitante ?? "—", sub: order.diagnostico ?? "" },
+    { icon: Stethoscope, label: "Médico", value: medicoLabel, sub: medicoSub },
     { icon: Calendar, label: "Fecha", value: formatDate(order.created_at, true), sub: (order.sedes as unknown as { nombre: string }).nombre },
   ];
 

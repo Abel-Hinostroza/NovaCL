@@ -91,13 +91,18 @@ async function findDeltaAlerts(
  * Registra la constancia de aviso de valores críticos (ISO 15189): a quién
  * se comunicó, por qué medio y qué analitos. Queda en la bitácora de
  * auditoría vía trigger.
+ *
+ * Si el receptor está en el directorio de profesionales (LIS_professionals)
+ * se persiste también el id para poder mostrar su colegiatura en los
+ * informes y en la trazabilidad.
  */
 export async function recordCriticalNotificationAction(
   orderId: string,
   criticos: CriticalValue[],
   notificadoA: string,
   medio: string,
-  nota?: string
+  nota?: string,
+  notificadoAId?: string
 ) {
   const ctx = await getSessionContext();
   if (!notificadoA.trim()) return { error: "Indica a quién se avisó." };
@@ -107,6 +112,7 @@ export async function recordCriticalNotificationAction(
     order_id: orderId,
     analitos: criticos,
     notificado_a: notificadoA.trim(),
+    notificado_a_id: notificadoAId || null,
     medio,
     nota: nota?.trim() || null,
     notificado_por: ctx.user.id,

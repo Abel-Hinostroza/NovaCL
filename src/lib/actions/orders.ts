@@ -11,6 +11,7 @@ export type CreateOrderInput = {
   studyIds: string[];
   prioridad: OrderPriority;
   medico?: string;
+  medicoId?: string;
   diagnostico?: string;
   observaciones?: string;
 };
@@ -27,6 +28,7 @@ export async function createOrderAction(input: CreateOrderInput) {
     p_items: input.studyIds.map((study_id) => ({ study_id })),
     p_prioridad: input.prioridad,
     p_medico: input.medico || null,
+    p_medico_id: input.medicoId || null,
     p_diagnostico: input.diagnostico || null,
     p_observaciones: input.observaciones || null,
   });

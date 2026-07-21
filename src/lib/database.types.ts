@@ -376,6 +376,7 @@ export interface Database {
         order_id: string;
         analitos: { analito: string; valor: string }[];
         notificado_a: string;
+        notificado_a_id: string | null;
         medio: string;
         nota: string | null;
         notificado_por: string | null;
@@ -456,6 +457,7 @@ export interface Database {
         motivo: string | null;
         study_ids: string[];
         medico_solicitante: string | null;
+        medico_solicitante_id: string | null;
         canal: string;
         notas: string | null;
         recordatorio_at: string | null;
@@ -647,6 +649,7 @@ export interface Database {
           p_items: Json;
           p_prioridad?: OrderPriority;
           p_medico?: string | null;
+          p_medico_id?: string | null;
           p_diagnostico?: string | null;
           p_observaciones?: string | null;
         };

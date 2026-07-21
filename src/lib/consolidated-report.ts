@@ -71,7 +71,7 @@ export async function buildConsolidatedReport(
   const { data: orders } = await supabase
     .from("LIS_orders")
     .select(
-      "id, codigo, created_at, medico_solicitante, diagnostico, patient_id, organization_id, organizations:LIS_organizations(nombre), sedes:LIS_sedes(nombre), patients:LIS_patients(nombres,apellidos,numero_documento,tipo_documento,sexo,fecha_nacimiento)"
+      "id, codigo, created_at, medico_solicitante, medico_solicitante_id, diagnostico, patient_id, organization_id, organizations:LIS_organizations(nombre), sedes:LIS_sedes(nombre), patients:LIS_patients(nombres,apellidos,numero_documento,tipo_documento,sexo,fecha_nacimiento)"
     )
     .in("id", orderIds)
     .order("created_at");
@@ -81,6 +81,20 @@ export async function buildConsolidatedReport(
   const patientId = orders[0].patient_id;
   const orgId = orders[0].organization_id;
   if (orders.some((o) => o.patient_id !== patientId || o.organization_id !== orgId)) return null;
+
+  // Catálogo de médicos solicitantes para añadir la colegiatura al informe
+  const solProfIds = [...new Set(orders.map((o) => o.medico_solicitante_id).filter((v): v is string => !!v))];
+  const solProfById = new Map<string, { colegio: string | null; numero: string | null }>();
+  if (solProfIds.length) {
+    const { data: solPros } = await supabase
+      .from("LIS_professionals")
+      .select("id, numero_colegiatura, colegio")
+      .eq("organization_id", orgId)
+      .in("id", solProfIds);
+    for (const p of solPros ?? []) {
+      solProfById.set(p.id, { colegio: p.colegio, numero: p.numero_colegiatura });
+    }
+  }
 
   const [{ data: items }, { data: samples }] = await Promise.all([
     supabase
@@ -164,10 +178,21 @@ export async function buildConsolidatedReport(
       })
       .filter((s) => s.analytes.length > 0);
 
+    // Si el médico solicitante está en el directorio, anotamos su colegiatura
+    // para que el informe refleje la identificación profesional (ISO 15189).
+    let medico = o.medico_solicitante;
+    if (o.medico_solicitante_id) {
+      const prof = solProfById.get(o.medico_solicitante_id);
+      if (prof?.numero) {
+        const cred = `${prof.colegio ?? ""} ${prof.numero}`.trim();
+        if (cred) medico = medico ? `${medico} (${cred})` : cred;
+      }
+    }
+
     return {
       codigo: o.codigo,
       fecha: o.created_at,
-      medico: o.medico_solicitante,
+      medico,
       diagnostico: o.diagnostico,
       samples: (samples ?? [])
         .filter((s) => s.order_id === o.id)

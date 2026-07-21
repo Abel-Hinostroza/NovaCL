@@ -27,6 +27,7 @@ import {
 } from "@/lib/actions/results";
 import type { FinalizeSummary } from "@/lib/automation";
 import { FLAG_LABELS, FLAG_COLORS, ITEM_STATUS_LABELS } from "@/lib/constants";
+import { ProfessionalPicker } from "@/components/professionals/professional-picker";
 import { cn } from "@/lib/utils";
 import type { ItemStatus, ResultFlag, ResultStatus } from "@/lib/database.types";
 
@@ -64,6 +65,7 @@ export function ResultsEntry({
   const [criticos, setCriticos] = useState<CriticalValue[]>([]);
   const [deltas, setDeltas] = useState<DeltaAlert[]>([]);
   const [avisadoA, setAvisadoA] = useState("");
+  const [avisadoAId, setAvisadoAId] = useState<string | null>(null);
   const [medioAviso, setMedioAviso] = useState("telefono");
   const [notaAviso, setNotaAviso] = useState("");
   const [savingAviso, startAviso] = useTransition();
@@ -262,31 +264,34 @@ export function ResultsEntry({
             Comunica estos resultados al médico o servicio solicitante de inmediato y
             registra la constancia. Este registro queda en la trazabilidad de la orden.
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="avisado-a">Se avisó a *</Label>
-              <Input
-                id="avisado-a"
-                value={avisadoA}
-                onChange={(e) => setAvisadoA(e.target.value)}
-                placeholder="Dr./Dra., servicio…"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="medio-aviso">Medio</Label>
-              <select
-                id="medio-aviso"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={medioAviso}
-                onChange={(e) => setMedioAviso(e.target.value)}
-              >
-                <option value="telefono">Teléfono</option>
-                <option value="email">Email</option>
-                <option value="presencial">Presencial</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="avisado-a">Se avisó a *</Label>
+            <ProfessionalPicker
+              value={avisadoAId}
+              onChange={(id) => setAvisadoAId(id)}
+              freeText={avisadoA}
+              onFreeTextChange={(t) => setAvisadoA(t)}
+            />
+            <Input
+              id="avisado-a"
+              value={avisadoA}
+              onChange={(e) => setAvisadoA(e.target.value)}
+              placeholder="O escribe manualmente: Dr./Dra., servicio…"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="medio-aviso">Medio</Label>
+            <select
+              id="medio-aviso"
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={medioAviso}
+              onChange={(e) => setMedioAviso(e.target.value)}
+            >
+              <option value="telefono">Teléfono</option>
+              <option value="email">Email</option>
+              <option value="presencial">Presencial</option>
+              <option value="otro">Otro</option>
+            </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="nota-aviso">Nota (opcional)</Label>
@@ -308,7 +313,8 @@ export function ResultsEntry({
                     criticos,
                     avisadoA,
                     medioAviso,
-                    notaAviso
+                    notaAviso,
+                    avisadoAId ?? undefined
                   );
                   if ("error" in r && r.error) {
                     toast.error(r.error);
@@ -317,6 +323,7 @@ export function ResultsEntry({
                   toast.success("Aviso crítico registrado en la trazabilidad");
                   setCriticos([]);
                   setAvisadoA("");
+                  setAvisadoAId(null);
                   setNotaAviso("");
                 })
               }

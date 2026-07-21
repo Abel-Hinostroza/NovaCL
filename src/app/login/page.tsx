@@ -4,7 +4,7 @@ import { Lock } from "lucide-react";
 import { LoginForm } from "./login-form";
 import { LogoParticles } from "./logo-particles";
 
-export const metadata = { title: "Ingresar · NovaLIS" };
+
 
 export default function LoginPage() {
   return (

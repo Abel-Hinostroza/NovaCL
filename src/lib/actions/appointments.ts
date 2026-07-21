@@ -13,6 +13,7 @@ const appointmentSchema = z.object({
   duracion_min: z.coerce.number().int().min(5).max(480),
   motivo: z.string().optional(),
   medico_solicitante: z.string().optional(),
+  medico_solicitante_id: z.string().uuid().optional().or(z.literal("")),
   canal: z.enum(["presencial", "telefono", "whatsapp", "web"]).default("presencial"),
   notas: z.string().optional(),
   study_ids: z.array(z.string().uuid()).default([]),
@@ -56,6 +57,7 @@ export async function createAppointmentAction(input: AppointmentInput) {
       duracion_min: d.duracion_min,
       motivo: d.motivo || null,
       medico_solicitante: d.medico_solicitante || null,
+      medico_solicitante_id: d.medico_solicitante_id || null,
       canal: d.canal,
       notas: d.notas || null,
       study_ids: d.study_ids,
@@ -111,7 +113,7 @@ export async function checkInAppointmentAction(id: string) {
   const supabase = await createClient();
   const { data: appt, error: e1 } = await supabase
     .from("LIS_appointments")
-    .select("id,patient_id,sede_id,study_ids,medico_solicitante,motivo,order_id")
+    .select("id,patient_id,sede_id,study_ids,medico_solicitante,medico_solicitante_id,motivo,order_id")
     .eq("id", id)
     .single();
   if (e1 || !appt) return { error: "Cita no encontrada." };
@@ -130,6 +132,7 @@ export async function checkInAppointmentAction(id: string) {
     p_items: appt.study_ids.map((study_id) => ({ study_id })),
     p_prioridad: "rutina",
     p_medico: appt.medico_solicitante,
+    p_medico_id: appt.medico_solicitante_id,
     p_diagnostico: appt.motivo,
     p_observaciones: null,
   });

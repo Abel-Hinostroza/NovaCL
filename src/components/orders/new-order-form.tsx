@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ProfessionalPicker } from "@/components/professionals/professional-picker";
 import { cn, formatMoney, calcAge } from "@/lib/utils";
 import type { OrderPriority } from "@/lib/database.types";
 
@@ -57,6 +58,7 @@ export function NewOrderForm({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [prioridad, setPrioridad] = useState<OrderPriority>("rutina");
   const [medico, setMedico] = useState("");
+  const [medicoId, setMedicoId] = useState<string | null>(null);
   const [diagnostico, setDiagnostico] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [saving, startSaving] = useTransition();
@@ -100,6 +102,7 @@ export function NewOrderForm({
         studyIds: [...selected],
         prioridad,
         medico,
+        medicoId: medicoId ?? undefined,
         diagnostico,
         observaciones,
       });
@@ -253,7 +256,19 @@ export function NewOrderForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="medico">Médico solicitante</Label>
-              <Input id="medico" value={medico} onChange={(e) => setMedico(e.target.value)} placeholder="Dr(a)." />
+              <ProfessionalPicker
+                value={medicoId}
+                onChange={(id) => setMedicoId(id)}
+                freeText={medico}
+                onFreeTextChange={(t) => setMedico(t)}
+              />
+              <Input
+                id="medico"
+                value={medico}
+                onChange={(e) => setMedico(e.target.value)}
+                placeholder="O escribe manualmente (médico externo no registrado)…"
+                className="text-sm"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="diag">Diagnóstico / motivo</Label>

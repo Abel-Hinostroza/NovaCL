@@ -9,10 +9,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: {
-    default: "Nova Lab · Sistema de Laboratorio Clínico",
-    template: "%s · Nova Lab",
-  },
+  title: "Nova LIS",
   description:
     "Sistema de información de laboratorio clínico (LIS) multi-sede: pacientes, órdenes, resultados y trazabilidad.",
   icons: {

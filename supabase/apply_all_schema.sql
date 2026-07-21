@@ -1312,6 +1312,7 @@ create or replace function public.create_order(
   p_items jsonb,
   p_prioridad app.order_priority default 'rutina',
   p_medico text default null,
+  p_medico_id uuid default null,
   p_diagnostico text default null,
   p_observaciones text default null
 ) returns public."LIS_orders"
@@ -1335,12 +1336,23 @@ begin
     raise exception 'no autorizado para crear ordenes en esta sede';
   end if;
 
+  if p_medico_id is not null then
+    if not exists (
+      select 1 from public."LIS_professionals" p
+      where p.id = p_medico_id and p.organization_id = v_org
+    ) then
+      raise exception 'profesional % no pertenece a la organizacion', p_medico_id;
+    end if;
+  end if;
+
   insert into public."LIS_orders"(
     organization_id, sede_id, patient_id, codigo, prioridad,
-    medico_solicitante, diagnostico, observaciones, created_by
+    medico_solicitante, medico_solicitante_id,
+    diagnostico, observaciones, created_by
   ) values (
     v_org, p_sede_id, p_patient_id, app.next_order_code(v_org), p_prioridad,
-    p_medico, p_diagnostico, p_observaciones, auth.uid()
+    p_medico, p_medico_id,
+    p_diagnostico, p_observaciones, auth.uid()
   ) returning * into v_order;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -1452,6 +1464,7 @@ create table public."LIS_appointments" (
   motivo           text,
   study_ids        uuid[] not null default '{}',   -- estudios preseleccionados (snapshot ligero)
   medico_solicitante text,
+  medico_solicitante_id uuid references public."LIS_professionals"(id) on delete set null,
   canal            text not null default 'presencial',  -- presencial | telefono | whatsapp | web
   notas            text,
   recordatorio_at  timestamptz,                    -- ultimo recordatorio enviado
