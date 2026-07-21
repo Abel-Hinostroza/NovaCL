@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROLE_OPTIONS } from "@/lib/constants";
+import { codeFromName } from "@/lib/text/slug";
 
 function SubmitBtn({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
@@ -34,30 +35,70 @@ function SubmitBtn({ children }: { children: React.ReactNode }) {
   );
 }
 
-function useToastAction(state: { ok?: boolean; error?: string } | undefined, okMsg: string) {
+function useToastAction(
+  state: { ok?: boolean; id?: string; error?: string } | undefined,
+  okMsg: string,
+  onOk?: () => void,
+) {
   const router = useRouter();
+  const lastOkIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (state?.ok) {
-      toast.success(okMsg);
-      router.refresh();
+      const sig = `${okMsg}:${state.id ?? ""}`;
+      if (lastOkIdRef.current !== sig) {
+        lastOkIdRef.current = sig;
+        toast.success(okMsg);
+        onOk?.();
+        router.refresh();
+      }
     } else if (state?.error) {
       toast.error(state.error);
     }
-  }, [state, okMsg, router]);
+  }, [state, okMsg, router, onOk]);
 }
 
 export function SedeForm() {
   const [state, action] = useActionState(createSedeAction, undefined);
+  const [nombre, setNombre] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [codigoTouched, setCodigoTouched] = useState(false);
   useToastAction(state, "Sede creada");
   return (
     <form action={action} className="space-y-3">
       <div className="space-y-2">
         <Label htmlFor="codigo">Código</Label>
-        <Input id="codigo" name="codigo" placeholder="S003" required />
+        <Input
+          id="codigo"
+          name="codigo"
+          placeholder="S003"
+          required
+          value={codigo}
+          onChange={(e) => {
+            setCodigoTouched(true);
+            setCodigo(e.target.value.toUpperCase());
+          }}
+          title="Sugerencia automática según el nombre de la sede"
+        />
+        {!codigo && nombre && (
+          <p className="text-xs text-muted-foreground">
+            Sugerencia: <span className="font-mono">{codeFromName(nombre)}</span>
+          </p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="nombre">Nombre</Label>
-        <Input id="nombre" name="nombre" placeholder="Sede Sur" required />
+        <Input
+          id="nombre"
+          name="nombre"
+          placeholder="Sede Sur"
+          required
+          value={nombre}
+          onChange={(e) => {
+            const next = e.target.value;
+            setNombre(next);
+            if (!codigoTouched) setCodigo(codeFromName(next));
+          }}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="direccion">Dirección</Label>

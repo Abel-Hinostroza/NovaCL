@@ -112,8 +112,8 @@ begin
   loop
     for v_role in select * from jsonb_array_elements_text(v_tenant.roles)
     loop
-      v_email := v_role || '+' || v_tenant.slug || '@nova-clinic.example';
-      v_pwd   := 'NC-' || encode(gen_random_bytes(9),'base64');
+      v_email := v_role || '.' || v_tenant.slug || '@novalab.dev';
+      v_pwd   := 'NovaLab';
 
       select id into v_user_id
         from auth.users

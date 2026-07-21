@@ -8,42 +8,21 @@
 2. Cargar la clínica demo: `supabase/seed_clinicas_demo.sql` (crea Santa Lucia y Ceramed con sus sedes).
 3. Generar usuarios por rol: `supabase/seed_usuarios_demo.sql`.
 
-   El script es idempotente. Tras ejecutarlo, **todas las credenciales quedan persistidas en la tabla `public._demo_credentials`** (junto con el bloque `RAISE NOTICE` por usuario). Ceramed incluye un `org_admin` con alcance organizacional (sede = "Toda la organización") que ve tanto Cusco como Lima.
+   El script es idempotente, define **una sola contraseña compartida** (`NovaLab`) para todos los usuarios demo y los persiste en la tabla temporal `public._demo_credentials` (junto con el bloque `RAISE NOTICE` por usuario). Ceramed incluye un `org_admin` con alcance organizacional (sede = "Toda la organización") que ve tanto Cusco como Lima.
 
-4. **Consultar y limpiar** las credenciales generadas:
+4. Consultar/limpiar las credenciales generadas:
 
    ```sql
-   -- 1) Leer todas las credenciales (incluye el org_admin de Ceramed)
+   -- 1) Leer credenciales (incluye el org_admin de Ceramed)
    select tenant, sede, role, email, password
    from public._demo_credentials
    order by tenant, sede, role;
 
-   -- 2) Tras copiarlas al documento, eliminar la tabla temporal
+   -- 2) Tras copiar, eliminar la tabla temporal
    drop table public._demo_credentials;
    ```
 
-> Las contraseñas son aleatorias (`encode(gen_random_bytes(9),'base64')`). El operador debe copiarlas desde `select` y guardarlas en su gestor de secretos. **Nunca** versionarlas.
-
-## Convenciones
-
-- Cada usuario queda con:
-  - `auth.users` (password = bcrypt).
-  - `auth.identities` (provider `email`).
-  - `public."LIS_profiles"` (`es_superadmin = false`).
-  - `public."LIS_memberships"` con `activo = true`.
-- Email: `<rol>+<slug-clinica>@nova-clinic.example` (slug en minúsculas).
-- Nombre: `Rol · Tenant` (capitalizado).
-
-## Matriz generada por `seed_usuarios_demo.sql`
-
-| Clínica | Sede | Roles creados |
-|---|---|---|
-| Santa Lucia | Santa Lucia La Merced | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
-| Ceramed | Ceramed Cusco | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
-| Ceramed | Ceramed Lima | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
-| Ceramed | Toda la organización | org_admin (ve ambas sedes: Cusco y Lima) |
-
-Total: **25 usuarios** (3 sedes con 8 roles + 1 org_admin de Ceramed).
+> Contraseña compartida demo: `NovaLab`. Email patrón: `<rol>.<slug-clinica>@novalab.dev`.
 
 ## Roles disponibles en Nova Lab
 
@@ -59,56 +38,68 @@ Total: **25 usuarios** (3 sedes con 8 roles + 1 org_admin de Ceramed).
 | `medico` | Médico solicitante: lectura de pacientes y resultados propios. |
 | `lectura` | Solo lectura/auditoría. |
 
+## Matriz generada por `seed_usuarios_demo.sql`
+
+| Clínica | Sede | Cantidad de usuarios | Roles |
+|---|---|---|---|
+| Santa Lucia | Santa Lucia La Merced | 8 | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
+| Ceramed | Ceramed Cusco | 8 | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
+| Ceramed | Ceramed Lima | 8 | recepcion, toma_muestra, analista, validador, facturacion, medico, lectura, sede_admin |
+| Ceramed | Toda la organización | 1 | org_admin |
+
+**Total: 25 usuarios**, todos con la misma contraseña `NovaLab`. Total por clínica y por sede: cada correo es único porque el patrón incluye el slug.
+
 ## Plantilla para entrega al cliente
 
-> Reemplaza los placeholders `<EMAIL>` y `<PASSWORD>` con los valores generados por el script.
+> Todos los usuarios comparten la contraseña: **`NovaLab`**.
+> Tras el primer inicio de sesión se recomienda cambiarla desde Supabase Auth (admin) o desde la pantalla de cuenta del propio usuario.
 
 ### Santa Lucia — Santa Lucia La Merced
 
-| Email | Contraseña | Rol |
-|---|---|---|
-| `recepcion+santa-lucia@nova-clinic.example` | `<PASSWORD>` | recepcion |
-| `toma_muestra+santa-lucia@nova-clinic.example` | `<PASSWORD>` | toma_muestra |
-| `analista+santa-lucia@nova-clinic.example` | `<PASSWORD>` | analista |
-| `validador+santa-lucia@nova-clinic.example` | `<PASSWORD>` | validador |
-| `facturacion+santa-lucia@nova-clinic.example` | `<PASSWORD>` | facturacion |
-| `medico+santa-lucia@nova-clinic.example` | `<PASSWORD>` | medico |
-| `lectura+santa-lucia@nova-clinic.example` | `<PASSWORD>` | lectura |
-| `sede_admin+santa-lucia@nova-clinic.example` | `<PASSWORD>` | sede_admin |
+| Email | Rol |
+|---|---|
+| `recepcion.santa-lucia@novalab.dev` | recepcion |
+| `toma_muestra.santa-lucia@novalab.dev` | toma_muestra |
+| `analista.santa-lucia@novalab.dev` | analista |
+| `validador.santa-lucia@novalab.dev` | validador |
+| `facturacion.santa-lucia@novalab.dev` | facturacion |
+| `medico.santa-lucia@novalab.dev` | medico |
+| `lectura.santa-lucia@novalab.dev` | lectura |
+| `sede_admin.santa-lucia@novalab.dev` | sede_admin |
 
 ### Ceramed — Ceramed Cusco
 
-| Email | Contraseña | Rol |
-|---|---|---|
-| `recepcion+ceramed@nova-clinic.example` | `<PASSWORD>` | recepcion |
-| `toma_muestra+ceramed@nova-clinic.example` | `<PASSWORD>` | toma_muestra |
-| `analista+ceramed@nova-clinic.example` | `<PASSWORD>` | analista |
-| `validador+ceramed@nova-clinic.example` | `<PASSWORD>` | validador |
-| `facturacion+ceramed@nova-clinic.example` | `<PASSWORD>` | facturacion |
-| `medico+ceramed@nova-clinic.example` | `<PASSWORD>` | medico |
-| `lectura+ceramed@nova-clinic.example` | `<PASSWORD>` | lectura |
-| `sede_admin+ceramed@nova-clinic.example` | `<PASSWORD>` | sede_admin |
+| Email | Rol |
+|---|---|
+| `recepcion.ceramed@novalab.dev` | recepcion |
+| `toma_muestra.ceramed@novalab.dev` | toma_muestra |
+| `analista.ceramed@novalab.dev` | analista |
+| `validador.ceramed@novalab.dev` | validador |
+| `facturacion.ceramed@novalab.dev` | facturacion |
+| `medico.ceramed@novalab.dev` | medico |
+| `lectura.ceramed@novalab.dev` | lectura |
+| `sede_admin.ceramed@novalab.dev` | sede_admin |
 
 ### Ceramed — Ceramed Lima
 
-| Email | Contraseña | Rol |
-|---|---|---|
-| `recepcion+ceramed@nova-clinic.example` | `<PASSWORD>` | recepcion |
-| `toma_muestra+ceramed@nova-clinic.example` | `<PASSWORD>` | toma_muestra |
-| `analista+ceramed@nova-clinic.example` | `<PASSWORD>` | analista |
-| `validador+ceramed@nova-clinic.example` | `<PASSWORD>` | validador |
-| `facturacion+ceramed@nova-clinic.example` | `<PASSWORD>` | facturacion |
-| `medico+ceramed@nova-clinic.example` | `<PASSWORD>` | medico |
-| `lectura+ceramed@nova-clinic.example` | `<PASSWORD>` | lectura |
-| `sede_admin+ceramed@nova-clinic.example` | `<PASSWORD>` | sede_admin |
+| Email | Rol |
+|---|---|
+| `recepcion.ceramed@novalab.dev` | recepcion |
+| `toma_muestra.ceramed@novalab.dev` | toma_muestra |
+| `analista.ceramed@novalab.dev` | analista |
+| `validador.ceramed@novalab.dev` | validador |
+| `facturacion.ceramed@novalab.dev` | facturacion |
+| `medico.ceramed@novalab.dev` | medico |
+| `lectura.ceramed@novalab.dev` | lectura |
+| `sede_admin.ceramed@novalab.dev` | sede_admin |
 
 ### Ceramed — Toda la organización (org_admin)
 
-| Email | Contraseña | Rol |
-|---|---|---|
-| `org_admin+ceramed@nova-clinic.example` | `<PASSWORD>` | org_admin (sede = "Toda la organización"; ve Cusco y Lima) |
+| Email | Rol |
+|---|---|
+| `org_admin.ceramed@novalab.dev` | org_admin (sede = "Toda la organización"; ve Cusco y Lima) |
 
-## Cómo volver a generar las contraseñas
+## Cómo volver a generar las credenciales
 
 ```bash
 psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
@@ -116,11 +107,11 @@ psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
   -f supabase/seed_usuarios_demo.sql
 ```
 
-> Ambos scripts usan `begin; … commit;`, son idempotentes y limpian sus propios datos previos antes de reinsertar. El segundo script recrea `public._demo_credentials`; recuerda ejecutar el `drop table` después de copiar las contraseñas al documento.
+> Ambos scripts usan `begin; … commit;`, son idempotentes y limpian sus propios datos previos antes de reinsertar. El segundo script recrea `public._demo_credentials`; recuerda ejecutar el `drop table` después de copiarlas al documento.
 
 ## Buenas prácticas
 
-1. **Cambia la contraseña** al primer inicio de sesión. El usuario lo puede hacer desde *Mi cuenta* (próximamente) o vía Supabase Auth (admin).
+1. **Cambia la contraseña** al primer inicio de sesión desde Supabase Auth (admin) — todos los usuarios demo comparten `NovaLab` y es una credencial pública.
 2. **Promueve o degrada roles** desde `/admin/organizaciones` (solo superadmin) o `/configuracion` (admin de org/sede).
 3. **Limpia los datos demo** cuando termines:
 
@@ -130,4 +121,4 @@ psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
    ```
 
    La cascada elimina sedes, membresías, pacientes, órdenes, muestras, resultados, facturas y auditoría.
-4. **Nunca** subas las credenciales generadas al repositorio; guárdalas en tu gestor de secretos (1Password, Vault, etc.).
+4. **Nunca** subas las credenciales generadas al repositorio; envía este documento al cliente por canal seguro (correo cifrado, Vault, etc.).

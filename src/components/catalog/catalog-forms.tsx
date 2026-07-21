@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { codeFromName } from "@/lib/text/slug";
 import { cn } from "@/lib/utils";
 
 export type Option = { id: string; nombre: string; codigo?: string };
@@ -44,15 +45,20 @@ function SubmitBtn({ children }: { children: React.ReactNode }) {
 }
 
 function useCloseOnOk(
-  state: { ok?: boolean; error?: string } | undefined,
+  state: { ok?: boolean; id?: string; error?: string } | undefined,
   onOk: () => void
 ) {
   const router = useRouter();
+  const lastSigRef = useRef<string | null>(null);
   useEffect(() => {
     if (state?.ok) {
-      toast.success("Guardado");
-      onOk();
-      router.refresh();
+      const sig = `ok:${state.id ?? ""}:${state.error ?? ""}`;
+      if (lastSigRef.current !== sig) {
+        lastSigRef.current = sig;
+        toast.success("Guardado");
+        onOk();
+        router.refresh();
+      }
     } else if (state?.error) {
       toast.error(state.error);
     }
@@ -63,6 +69,9 @@ function useCloseOnOk(
 export function CategoryDialog() {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveCategoryAction, undefined);
+  const [nombre, setNombre] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [codigoTouched, setCodigoTouched] = useState(false);
   useCloseOnOk(state, () => setOpen(false));
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -80,11 +89,38 @@ export function CategoryDialog() {
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label htmlFor="codigo">Código</Label>
-              <Input id="codigo" name="codigo" placeholder="SER" required />
+              <Input
+                id="codigo"
+                name="codigo"
+                placeholder="SER"
+                required
+                value={codigo}
+                onChange={(e) => {
+                  setCodigoTouched(true);
+                  setCodigo(e.target.value.toUpperCase());
+                }}
+                title="Sugerencia automática según el nombre"
+              />
+              {!codigo && nombre && (
+                <p className="text-xs text-muted-foreground">
+                  Sugerencia: <span className="font-mono">{codeFromName(nombre)}</span>
+                </p>
+              )}
             </div>
             <div className="col-span-2 space-y-2">
               <Label htmlFor="nombre">Nombre</Label>
-              <Input id="nombre" name="nombre" placeholder="Serología" required />
+              <Input
+                id="nombre"
+                name="nombre"
+                placeholder="Serología"
+                required
+                value={nombre}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setNombre(next);
+                  if (!codigoTouched) setCodigo(codeFromName(next));
+                }}
+              />
             </div>
           </div>
           <div className="flex justify-end">
@@ -115,6 +151,9 @@ export function AnalyteDialog({
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveAnalyteAction, undefined);
   const [valueType, setValueType] = useState(analyte?.value_type ?? "numerico");
+  const [nombre, setNombre] = useState(analyte?.nombre ?? "");
+  const [codigo, setCodigo] = useState(analyte?.codigo ?? "");
+  const [codigoTouched, setCodigoTouched] = useState(Boolean(analyte));
   useCloseOnOk(state, () => setOpen(false));
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -140,11 +179,38 @@ export function AnalyteDialog({
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label htmlFor="a_codigo">Código</Label>
-              <Input id="a_codigo" name="codigo" defaultValue={analyte?.codigo} required />
+              <Input
+                id="a_codigo"
+                name="codigo"
+                defaultValue={analyte?.codigo}
+                required
+                value={codigo}
+                onChange={(e) => {
+                  setCodigoTouched(true);
+                  setCodigo(e.target.value.toUpperCase());
+                }}
+                title="Sugerencia automática según el nombre"
+              />
+              {!codigo && nombre && (
+                <p className="text-xs text-muted-foreground">
+                  Sugerencia: <span className="font-mono">{codeFromName(nombre)}</span>
+                </p>
+              )}
             </div>
             <div className="col-span-2 space-y-2">
               <Label htmlFor="a_nombre">Nombre</Label>
-              <Input id="a_nombre" name="nombre" defaultValue={analyte?.nombre} required />
+              <Input
+                id="a_nombre"
+                name="nombre"
+                defaultValue={analyte?.nombre}
+                required
+                value={nombre}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setNombre(next);
+                  if (!codigoTouched) setCodigo(codeFromName(next));
+                }}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -240,6 +306,9 @@ export function StudyDialog({
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveStudyAction, undefined);
   const [selected, setSelected] = useState<Set<string>>(new Set(study?.analyteIds ?? []));
+  const [nombreEstudio, setNombreEstudio] = useState(study?.nombre ?? "");
+  const [codigoEstudio, setCodigoEstudio] = useState(study?.codigo ?? "");
+  const [codigoTouchedEstudio, setCodigoTouchedEstudio] = useState(Boolean(study));
   useCloseOnOk(state, () => setOpen(false));
 
   function toggle(id: string) {
@@ -278,11 +347,38 @@ export function StudyDialog({
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label htmlFor="s_codigo">Código</Label>
-              <Input id="s_codigo" name="codigo" defaultValue={study?.codigo} required />
+              <Input
+                id="s_codigo"
+                name="codigo"
+                defaultValue={study?.codigo}
+                required
+                value={codigoEstudio}
+                onChange={(e) => {
+                  setCodigoTouchedEstudio(true);
+                  setCodigoEstudio(e.target.value.toUpperCase());
+                }}
+                title="Sugerencia automática según el nombre"
+              />
+              {!codigoEstudio && nombreEstudio && (
+                <p className="text-xs text-muted-foreground">
+                  Sugerencia: <span className="font-mono">{codeFromName(nombreEstudio)}</span>
+                </p>
+              )}
             </div>
             <div className="col-span-2 space-y-2">
               <Label htmlFor="s_nombre">Nombre</Label>
-              <Input id="s_nombre" name="nombre" defaultValue={study?.nombre} required />
+              <Input
+                id="s_nombre"
+                name="nombre"
+                defaultValue={study?.nombre}
+                required
+                value={nombreEstudio}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setNombreEstudio(next);
+                  if (!codigoTouchedEstudio) setCodigoEstudio(codeFromName(next));
+                }}
+              />
             </div>
           </div>
 
