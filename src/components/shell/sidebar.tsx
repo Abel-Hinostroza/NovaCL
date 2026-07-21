@@ -28,13 +28,13 @@ export function Sidebar({ sections }: { sections: NavSection[] }) {
   return (
     <aside
       className={cn(
-        "hidden shrink-0 flex-col border-r bg-card transition-[width] duration-300 ease-in-out lg:flex",
+        "sticky top-0 hidden h-screen shrink-0 flex-col border-r bg-card transition-[width] duration-300 ease-in-out lg:flex",
         collapsed ? "w-17.5" : "w-64"
       )}
     >
       <div
         className={cn(
-          "flex h-14 items-center border-b font-semibold",
+          "flex h-14 shrink-0 items-center border-b font-semibold",
           collapsed ? "justify-center px-0" : "gap-2 px-4"
         )}
       >
@@ -67,7 +67,7 @@ export function Sidebar({ sections }: { sections: NavSection[] }) {
           />
         </Link>
       </div>
-      <nav className="flex-1 space-y-6 overflow-y-auto overflow-x-hidden px-3 py-4">
+      <nav className="min-h-0 flex-1 space-y-6 overflow-hidden px-3 py-4">
         {sections.map((section) => (
           <div key={section.title}>
             {collapsed ? (
@@ -118,7 +118,7 @@ export function Sidebar({ sections }: { sections: NavSection[] }) {
           </div>
         ))}
       </nav>
-      <div className="border-t p-3">
+      <div className="shrink-0 border-t p-3">
         <button
           type="button"
           onClick={toggle}

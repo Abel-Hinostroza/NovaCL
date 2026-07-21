@@ -39,6 +39,8 @@ export type NavItem = {
   href: string;
   icon: keyof typeof NAV_ICONS;
   roles?: Role[]; // si se omite, visible para todos los miembros
+  /** Clave de permiso a usar cuando no coincide 1:1 con `href` (ej. rutas anidadas). */
+  module?: ModuleKey;
 };
 
 export type NavSection = { title: string; items: NavItem[] };
@@ -70,7 +72,12 @@ export const NAV: NavSection[] = [
   {
     title: "Plataforma",
     items: [
-      { label: "Admin · Organizaciones", href: "/admin/organizaciones", icon: "ShieldCheck" },
+      {
+        label: "Admin · Organizaciones",
+        href: "/admin/organizaciones",
+        icon: "ShieldCheck",
+        module: "admin_organizaciones",
+      },
     ],
   },
 ];
@@ -83,8 +90,9 @@ export const NAV: NavSection[] = [
 export function visibleNav(perms: PermissionMap): NavSection[] {
   return NAV.map((section) => ({
     ...section,
-    items: section.items.filter(
-      (it) => perms[it.href.slice(1) as ModuleKey]?.view === true
-    ),
+    items: section.items.filter((it) => {
+      const key = it.module ?? (it.href.slice(1) as ModuleKey);
+      return perms[key]?.view === true;
+    }),
   })).filter((s) => s.items.length > 0);
 }
