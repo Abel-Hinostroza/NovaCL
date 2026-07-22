@@ -41,7 +41,7 @@ export default function LoginPage() {
             tarjeta — una animación de opacidad promueve el elemento a su
             propia capa y crea un "backdrop root": el vidrio dejaría de ver
             (y desenfocar) la fotografía. El fade-in va en el contenido. */}
-        <div className="relative w-full max-w-md">
+        <div className="relative w-full max-w-lg">
           <div className="relative overflow-hidden rounded-[1.25rem] shadow-2xl shadow-black/50 backdrop-blur-[15px] backdrop-saturate-125">
             {/* Tinte negro translúcido, como la tarjeta de la referencia */}
             <div aria-hidden className="pointer-events-none absolute inset-0 bg-black/35" />
@@ -51,7 +51,7 @@ export default function LoginPage() {
               className="pointer-events-none absolute inset-0 bg-linear-to-br from-white/10 via-transparent to-black/20"
             />
 
-            <div className="relative flex animate-fade-in flex-col gap-8 px-9 py-10 sm:px-12">
+            <div className="relative flex animate-fade-in flex-col gap-8 px-9 py-12 sm:px-14">
               {/* Marca integrada. El isotipo va estático a propósito: en un
                   login profesional el movimiento continuo del logo compite
                   con la tarea y ya hay vida en las partículas del fondo. */}
@@ -79,8 +79,9 @@ export default function LoginPage() {
 
                 <div className="space-y-2 [text-shadow:0_1px_3px_rgb(0_0_0/0.65)]">
                   {/* Azul clínico de la paleta (hue de --brand-2) aclarado
-                      para mantener contraste sobre el vidrio oscuro */}
-                  <h2 className="text-xl font-bold uppercase tracking-[0.28em] text-[oklch(0.78_0.11_232)]">
+                      para mantener contraste sobre el vidrio oscuro; el halo
+                      azulado sutil lo separa del fondo y refuerza jerarquía */}
+                  <h2 className="text-2xl font-bold uppercase tracking-[0.3em] text-[oklch(0.82_0.11_232)] [text-shadow:0_1px_3px_rgb(0_0_0/0.7),0_0_22px_rgb(56_189_248/0.35)]">
                     Iniciar sesión
                   </h2>
                   <p className="text-sm font-medium text-white/85">
