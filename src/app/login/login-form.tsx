@@ -7,17 +7,45 @@ import { Eye, EyeOff, Loader2, Lock, Mail, type LucideIcon } from "lucide-react"
 import { signInAction, type ActionState } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 
-function SubmitButton() {
+function SubmitButton({ ready }: { ready: boolean }) {
   const { pending } = useFormStatus();
+  const animated = ready && !pending;
   return (
-    <Button
-      type="submit"
-      className="h-11 w-full rounded-full text-sm font-semibold tracking-wide"
-      disabled={pending}
-    >
-      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-      Ingresar
-    </Button>
+    <div className="group relative rounded-full">
+      {/* Borde vivo: visible solo cuando correo y contraseña están completos.
+          Un cuadrado con degradado cónico gira detrás del botón; como el
+          botón lo cubre todo salvo un anillo de 1.5px, se ven dos cometas
+          (cabeza brillante + cola que se desvanece, como estrellas fugaces,
+          una azul y una teal) recorriendo el borde. Con hover aceleran
+          (ver .animate-border-orbit en globals.css). */}
+      {animated && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -inset-0.5 overflow-hidden rounded-full"
+        >
+          <span
+            className="absolute left-1/2 top-1/2 aspect-square w-[110%] animate-border-orbit"
+            style={{
+              background:
+                "conic-gradient(transparent 0deg 30deg, rgba(56,189,248,0) 45deg, rgba(56,189,248,0.6) 105deg, rgba(186,230,253,1) 128deg, transparent 131deg 210deg, rgba(45,212,191,0) 225deg, rgba(45,212,191,0.6) 285deg, rgba(204,251,241,1) 308deg, transparent 311deg 360deg)",
+            }}
+          />
+        </span>
+      )}
+      <Button
+        type="submit"
+        // "hover:bg-primary" anula el "hover:bg-primary/90" del variant:
+        // con 10% de transparencia se veía el degradado cónico que gira
+        // debajo del botón. El feedback de hover pasa a ser un brillo.
+        className={`relative h-11 w-full rounded-full text-sm font-semibold tracking-wide transition-all duration-500 hover:bg-primary hover:brightness-110 ${
+          animated ? "shadow-[0_0_24px_rgba(45,212,191,0.4)]" : ""
+        }`}
+        disabled={pending}
+      >
+        {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+        Ingresar
+      </Button>
+    </div>
   );
 }
 
@@ -41,18 +69,18 @@ function FloatingFieldChrome({
     <>
       <Icon
         aria-hidden
-        className={`pointer-events-none absolute left-0 transition-all duration-200 ${
+        className={`pointer-events-none absolute left-0 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)] transition-all duration-200 ${
           active
             ? "top-1 h-3.5 w-3.5 text-cyan-300"
-            : "top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-white/45"
+            : "top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-white/70"
         }`}
       />
       <label
         htmlFor={htmlFor}
-        className={`pointer-events-none absolute left-7 transition-all duration-200 ${
+        className={`pointer-events-none absolute left-7 transition-all duration-200 [text-shadow:0_1px_2px_rgb(0_0_0/0.6)] ${
           active
-            ? "top-1 text-[10.5px] tracking-wide text-cyan-300/90"
-            : "top-1/2 -translate-y-1/2 text-sm text-white/50"
+            ? "top-1 text-[10.5px] tracking-wide text-cyan-300"
+            : "top-1/2 -translate-y-1/2 text-sm text-white/75"
         }`}
       >
         {label}
@@ -83,7 +111,7 @@ export function LoginForm() {
           al enfocar (o si el campo ya tiene texto, p. ej. autocompletado). */}
       <div
         className={`relative h-12 border-b transition-colors duration-200 ${
-          emailFocused ? "border-cyan-300" : "border-white/20"
+          emailFocused ? "border-cyan-300" : "border-white/35"
         }`}
       >
         <input
@@ -107,7 +135,7 @@ export function LoginForm() {
           mostrar/ocultar a la derecha (fijo, no participa de la animación). */}
       <div
         className={`relative h-12 border-b transition-colors duration-200 ${
-          passwordFocused ? "border-cyan-300" : "border-white/20"
+          passwordFocused ? "border-cyan-300" : "border-white/35"
         }`}
       >
         <input
@@ -115,7 +143,11 @@ export function LoginForm() {
           name="password"
           type={showPassword ? "text" : "password"}
           required
-          autoComplete="current-password"
+          // "new-password" evita que el gestor del navegador rellene la
+          // credencial guardada al cargar la página; el usuario aún puede
+          // usarlo manualmente. En el correo se conserva "email" para que
+          // sigan apareciendo las sugerencias al escribir.
+          autoComplete="new-password"
           onFocus={() => setPasswordFocused(true)}
           onBlur={(e) => {
             setPasswordFocused(false);
@@ -130,7 +162,7 @@ export function LoginForm() {
           onClick={() => setShowPassword((prev) => !prev)}
           aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
           aria-pressed={showPassword}
-          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-white/45 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-white/65 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
         >
           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
@@ -145,7 +177,7 @@ export function LoginForm() {
           </p>
         )}
       </div>
-      <SubmitButton />
+      <SubmitButton ready={emailHasValue && passwordHasValue} />
     </form>
   );
 }
