@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Save, ShieldCheck, Loader2, AlertTriangle, Send, ArrowRight } from "lucide-react";
+import { Save, ShieldCheck, Loader2, AlertTriangle, Send, ArrowRight, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import type { FinalizeSummary } from "@/lib/automation";
 import { FLAG_LABELS, FLAG_COLORS, ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ProfessionalPicker } from "@/components/professionals/professional-picker";
 import { cn } from "@/lib/utils";
+import { evalFlagNum, evalFlagText, type RefRange } from "@/lib/results/reference";
 import type { ItemStatus, ResultFlag, ResultStatus } from "@/lib/database.types";
 
 export type AnalyteRow = {
@@ -42,6 +43,7 @@ export type AnalyteRow = {
   valorTexto: string | null;
   flag: ResultFlag | null;
   rango: string | null;
+  range: RefRange | null;
   status: ResultStatus | null;
 };
 
@@ -172,6 +174,16 @@ export function ResultsEntry({
                 {g.analytes.map((a) => {
                   const key = `${g.orderItemId}:${a.analyteId}`;
                   const locked = a.status === "validado";
+                  // Indicador en vivo: recalculado con el valor que se está
+                  // digitando, con el mismo criterio que el servidor. Si el campo
+                  // está vacío, se muestra el flag del último guardado.
+                  const raw = values[key]?.trim() ?? "";
+                  const liveFlag =
+                    raw === ""
+                      ? a.flag
+                      : a.valueType === "numerico"
+                        ? evalFlagNum(Number(raw), a.range)
+                        : evalFlagText(raw, a.range);
                   return (
                     <TableRow key={a.analyteId}>
                       <TableCell className="font-medium">{a.nombre}</TableCell>
@@ -199,12 +211,12 @@ export function ResultsEntry({
                             onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
                             className={cn(
                               locked && "opacity-70",
-                              // Semaforización: el borde refleja el último flag calculado
-                              a.flag === "critico_alto" || a.flag === "critico_bajo"
+                              // Semaforización: el borde refleja el indicador en vivo
+                              liveFlag === "critico_alto" || liveFlag === "critico_bajo"
                                 ? "border-l-4 border-l-red-500"
-                                : a.flag === "alto" || a.flag === "bajo"
+                                : liveFlag === "alto" || liveFlag === "bajo" || liveFlag === "anormal"
                                   ? "border-l-4 border-l-amber-500"
-                                  : a.flag === "normal"
+                                  : liveFlag === "normal"
                                     ? "border-l-4 border-l-emerald-500"
                                     : undefined
                             )}
@@ -214,8 +226,8 @@ export function ResultsEntry({
                       <TableCell className="text-sm text-muted-foreground">{a.unidad ?? "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{a.rango ?? "—"}</TableCell>
                       <TableCell>
-                        {a.flag ? (
-                          <span className={cn("text-sm", FLAG_COLORS[a.flag])}>{FLAG_LABELS[a.flag]}</span>
+                        {liveFlag ? (
+                          <span className={cn("text-sm", FLAG_COLORS[liveFlag])}>{FLAG_LABELS[liveFlag]}</span>
                         ) : (
                           <span className="text-sm text-muted-foreground">—</span>
                         )}
@@ -250,6 +262,18 @@ export function ResultsEntry({
           </>
         ) : (
           <div className="flex flex-1 justify-end gap-2">
+            {/* Carga masiva de resultados desde un documento (CSV/analizador).
+                Deshabilitado por ahora: se habilitará cuando exista el parser
+                de importación para estudios con muchos campos. */}
+            <Button
+              variant="outline"
+              disabled
+              title="Próximamente: cargar resultados desde un documento (CSV / analizador)"
+              className="text-muted-foreground"
+            >
+              <Upload className="h-4 w-4" />
+              Importar
+            </Button>
             <Button variant="outline" onClick={() => run(false)} disabled={pending}>
               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Guardar borrador

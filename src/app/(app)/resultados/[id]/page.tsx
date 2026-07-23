@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { ResultsEntry, type ItemGroup } from "@/components/results/results-entry";
 import { hasRole } from "@/lib/auth/session";
 import { calcAge } from "@/lib/utils";
+import {
+  formatRangeText,
+  patientAgeDays,
+  pickRange,
+  type RefRange,
+} from "@/lib/results/reference";
 
 export default async function ResultEntryPage({
   params,
@@ -44,6 +50,47 @@ export default async function ResultEntryPage({
   const resultMap = new Map<string, NonNullable<typeof results>[number]>();
   for (const r of results ?? []) resultMap.set(`${r.order_item_id}:${r.analyte_id}`, r);
 
+  // Rangos de referencia del catálogo, para mostrar la referencia y el indicador
+  // ANTES de guardar (el técnico ve el objetivo mientras digita). El servidor
+  // recalcula con el mismo criterio al persistir.
+  const analyteIds = Array.from(
+    new Set(
+      (items ?? []).flatMap((it) =>
+        (
+          (it.studies as unknown as { study_analytes: { analytes: { id: string } }[] } | null)
+            ?.study_analytes ?? []
+        ).map((x) => x.analytes.id)
+      )
+    )
+  );
+  const { data: ranges } = analyteIds.length
+    ? await supabase
+        .from("LIS_reference_ranges")
+        .select("analyte_id,sexo,edad_min_dias,edad_max_dias,valor_min,valor_max,critico_min,critico_max,texto_normal")
+        .in("analyte_id", analyteIds)
+    : { data: [] };
+
+  const rangesByAnalyte = new Map<string, RefRange[]>();
+  for (const r of ranges ?? []) {
+    const arr = rangesByAnalyte.get(r.analyte_id) ?? [];
+    arr.push({
+      sexo: r.sexo,
+      edadMinDias: r.edad_min_dias,
+      edadMaxDias: r.edad_max_dias,
+      valorMin: r.valor_min,
+      valorMax: r.valor_max,
+      criticoMin: r.critico_min,
+      criticoMax: r.critico_max,
+      textoNormal: r.texto_normal,
+    });
+    rangesByAnalyte.set(r.analyte_id, arr);
+  }
+
+  const patientSexo = (order.patients as unknown as { sexo: string }).sexo;
+  const patientFechaNac = (order.patients as unknown as { fecha_nacimiento: string | null })
+    .fecha_nacimiento;
+  const ageDays = patientAgeDays(patientFechaNac);
+
   const groups: ItemGroup[] = (items ?? []).map((it) => {
     const sa =
       ((it.studies as unknown as { study_analytes: { orden: number; analytes: { id: string; nombre: string; unidad: string | null; value_type: string; decimales: number; opciones: unknown } }[] } | null)
@@ -56,6 +103,9 @@ export default async function ResultEntryPage({
       status: it.status,
       analytes: sa.map((x) => {
         const r = resultMap.get(`${it.id}:${x.analytes.id}`);
+        // Rango aplicable al paciente (sexo/edad); alimenta la referencia
+        // precargada y el indicador en vivo del cliente.
+        const range = pickRange(rangesByAnalyte.get(x.analytes.id) ?? [], patientSexo, ageDays);
         return {
           analyteId: x.analytes.id,
           nombre: x.analytes.nombre,
@@ -65,7 +115,9 @@ export default async function ResultEntryPage({
           valorNum: r?.valor_num ?? null,
           valorTexto: r?.valor_texto ?? null,
           flag: r?.flag ?? null,
-          rango: r?.rango_texto ?? null,
+          // Preferir el rango con que se guardó; si aún no hay resultado, el del catálogo.
+          rango: r?.rango_texto ?? formatRangeText(range) ?? null,
+          range,
           status: r?.status ?? null,
         };
       }),

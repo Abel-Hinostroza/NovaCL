@@ -13,6 +13,7 @@ import { OrderStatusBadge, PriorityBadge } from "@/components/status-badge";
 import { OrderActions } from "@/components/orders/order-actions";
 import { AddStudyDialog } from "@/components/orders/add-study-dialog";
 import { SamplesPanel } from "@/components/orders/samples-panel";
+import { OrderStepper } from "@/components/orders/order-stepper";
 import { OrderTimeline } from "@/components/orders/order-timeline";
 import { ITEM_STATUS_LABELS, SAMPLE_STATUS_LABELS } from "@/lib/constants";
 import { calcAge, formatDate, formatMoney } from "@/lib/utils";
@@ -192,6 +193,12 @@ export default async function OrderDetailPage({
           </Card>
         ))}
       </div>
+
+      <OrderStepper
+        orderId={order.id}
+        status={order.status}
+        items={(items ?? []).map((i) => ({ status: i.status }))}
+      />
 
       {informes.length > 0 && (
         <Card className="mb-6 animate-fade-in">

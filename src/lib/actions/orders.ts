@@ -60,12 +60,20 @@ export async function createSampleAction(orderId: string, orderItemIds: string[]
   if (orderItemIds.length > 0) {
     const { data: items } = await supabase
       .from("LIS_order_items")
-      .select("id")
+      .select("id, status")
       .eq("order_id", orderId)
       .in("id", orderItemIds);
-    const found = new Set((items ?? []).map((i) => i.id));
-    if (orderItemIds.some((id) => !found.has(id))) {
+    const statusById = new Map((items ?? []).map((i) => [i.id, i.status]));
+    if (orderItemIds.some((id) => !statusById.has(id))) {
       return { error: "Algunos estudios no pertenecen a esta orden." };
+    }
+    // Un estudio ya cubierto no genera otra muestra: para re-tomar, primero se
+    // rechaza la muestra anterior (eso reabre el estudio a 'pendiente').
+    if (orderItemIds.some((id) => statusById.get(id) !== "pendiente")) {
+      return {
+        error:
+          "Uno o más estudios ya tienen muestra tomada. Para volver a tomar, rechaza la muestra anterior.",
+      };
     }
   }
 
@@ -106,6 +114,27 @@ export async function createSampleAction(orderId: string, orderItemIds: string[]
 }
 
 /** Transiciones de muestra permitidas (espejo de app.guard_sample_status). */
+/**
+ * Resuelve una muestra por su código de barras (Code 128) para el flujo de
+ * escaneo en Muestras. Acotado a la organización activa; el barcode es único.
+ */
+export async function findSampleByBarcodeAction(barcode: string) {
+  const ctx = await getSessionContext();
+  const supabase = await createClient();
+  const code = barcode.trim();
+  if (!code) return { error: "Escanea o ingresa un código." };
+
+  const { data } = await supabase
+    .from("LIS_samples")
+    .select("id, order_id, status")
+    .eq("organization_id", ctx.activeOrgId!)
+    .eq("barcode", code)
+    .maybeSingle();
+  if (!data) return { error: `No se encontró una muestra con el código ${code}.` };
+
+  return { orderId: data.order_id, sampleId: data.id, status: data.status };
+}
+
 const SAMPLE_NEXT: Record<string, SampleStatus[]> = {
   pendiente: ["tomada", "rechazada"],
   tomada: ["en_transito", "recibida", "rechazada"],
@@ -126,7 +155,7 @@ export async function updateSampleStatusAction(
 
   const { data: sample } = await supabase
     .from("LIS_samples")
-    .select("id, status")
+    .select("id, status, order_id")
     .eq("id", sampleId)
     .maybeSingle();
   if (!sample) return { error: "Muestra no encontrada." };
@@ -148,7 +177,32 @@ export async function updateSampleStatusAction(
   const { error } = await supabase.from("LIS_samples").update(patch).eq("id", sampleId);
   if (error) return { error: friendlyDbError(error, "No se pudo actualizar la muestra.") };
 
+  // Re-toma: al rechazar, los estudios que cubría esta muestra quedan sin
+  // espécimen. Se reabren a 'pendiente' (disponibles para volver a tomar) solo
+  // si no los cubre otra muestra viva y aún no tienen resultados (siguen en_proceso).
+  if (status === "rechazada") {
+    const { data: links } = await supabase
+      .from("LIS_sample_items")
+      .select("order_item_id")
+      .eq("sample_id", sampleId);
+    for (const itemId of [...new Set((links ?? []).map((l) => l.order_item_id))]) {
+      const { data: vivas } = await supabase
+        .from("LIS_sample_items")
+        .select("sample_id, samples:LIS_samples!inner(status)")
+        .eq("order_item_id", itemId)
+        .neq("sample_id", sampleId)
+        .neq("samples.status", "rechazada");
+      if ((vivas ?? []).length > 0) continue; // otra muestra viva ya lo cubre
+      await supabase
+        .from("LIS_order_items")
+        .update({ status: "pendiente" })
+        .eq("id", itemId)
+        .eq("status", "en_proceso");
+    }
+  }
+
   revalidatePath("/muestras");
+  if (sample.order_id) revalidatePath(`/ordenes/${sample.order_id}`);
   return { ok: true };
 }
 

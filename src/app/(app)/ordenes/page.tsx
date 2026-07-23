@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, ArrowRight } from "lucide-react";
 import { getSessionContext } from "@/lib/auth/session";
 import { requireModuleAccess } from "@/lib/auth/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -14,6 +14,31 @@ import { formatDate, formatMoney } from "@/lib/utils";
 import type { OrderStatus } from "@/lib/database.types";
 
 export const metadata = { title: "Órdenes" };
+
+/**
+ * Acción del paso vigente de la orden, misma lógica que el stepper del detalle.
+ * Un item deja 'pendiente' al generarse su muestra, así que
+ * conMuestra = items_total − items_pendientes.
+ */
+function nextAction(o: {
+  id: string;
+  status: OrderStatus;
+  items_total: number;
+  items_pendientes: number;
+  items_validados: number;
+}): { label: string; href: string; primary: boolean } | null {
+  if (o.status === "anulada") return null;
+  if (o.status === "entregada") return { label: "Reporte", href: `/reportes/${o.id}`, primary: false };
+  const total = o.items_total ?? 0;
+  if (total === 0) return { label: "Ver orden", href: `/ordenes/${o.id}`, primary: false };
+  const conMuestra = total - (o.items_pendientes ?? 0);
+  const validados = o.items_validados ?? 0;
+  if (o.status === "completada" || validados === total)
+    return { label: "Ir a Entrega", href: "/entrega", primary: true };
+  if (conMuestra < total)
+    return { label: "Generar muestra", href: `/ordenes/${o.id}?tab=muestras`, primary: true };
+  return { label: "Ingresar resultados", href: `/resultados/${o.id}?from=list`, primary: true };
+}
 
 export default async function OrdenesPage({
   searchParams,
@@ -64,6 +89,7 @@ export default async function OrdenesPage({
                 <TableHead>Progreso</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -106,11 +132,25 @@ export default async function OrdenesPage({
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(o.created_at, true)}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {(() => {
+                        const action = nextAction(o);
+                        if (!action) return <span className="text-xs text-muted-foreground">—</span>;
+                        return (
+                          <Button asChild size="sm" variant={action.primary ? "default" : "ghost"}>
+                            <Link href={action.href as never}>
+                              {action.label}
+                              {action.primary && <ArrowRight className="h-4 w-4" />}
+                            </Link>
+                          </Button>
+                        );
+                      })()}
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                     No hay órdenes que coincidan.
                   </TableCell>
                 </TableRow>

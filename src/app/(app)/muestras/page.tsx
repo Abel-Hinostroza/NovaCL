@@ -7,8 +7,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { SampleRowActions } from "@/components/orders/sample-row-actions";
+import { SampleScan } from "@/components/orders/sample-scan";
 import { SAMPLE_STATUS_LABELS } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Tag } from "lucide-react";
 
 export const metadata = { title: "Muestras" };
 
@@ -28,6 +31,9 @@ export default async function MuestrasPage() {
   return (
     <>
       <PageHeader title="Muestras" description="Worklist de muestras en proceso." />
+      <div className="mb-4">
+        <SampleScan />
+      </div>
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -67,7 +73,14 @@ export default async function MuestrasPage() {
                         {formatDate(s.tomada_at, true)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <SampleRowActions sampleId={s.id} status={s.status} />
+                        <div className="flex items-center justify-end gap-1">
+                          <Button asChild variant="ghost" size="sm" title="Imprimir etiqueta del tubo">
+                            <Link href={`/etiquetas/muestra/${s.id}`} target="_blank">
+                              <Tag className="h-4 w-4" /> Etiqueta
+                            </Link>
+                          </Button>
+                          <SampleRowActions sampleId={s.id} status={s.status} />
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
