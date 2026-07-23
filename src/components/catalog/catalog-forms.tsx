@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Pencil, FlaskConical, FolderPlus } from "lucide-react";
+import { Plus, Pencil, FlaskConical, FolderPlus, Trash2 } from "lucide-react";
 import {
   saveCategoryAction,
   saveAnalyteAction,
@@ -31,9 +31,241 @@ import { codeFromName } from "@/lib/text/slug";
 import { cn } from "@/lib/utils";
 import { StickyFormActions } from "@/components/forms/sticky-form-actions";
 import { CATEGORY_PALETTE, resolveCategoryColor } from "@/lib/catalog/category-colors";
+import type { Sex } from "@/lib/database.types";
 
 export type Option = { id: string; nombre: string; codigo?: string };
 export type AnalyteOption = Option & { unidad: string | null };
+
+/** Rango de referencia tal como se edita/persiste (sexo "desconocido" = aplica a todos). */
+export type ReferenceRangeInput = {
+  sexo: Sex;
+  edad_min_dias: number | null;
+  edad_max_dias: number | null;
+  valor_min: number | null;
+  valor_max: number | null;
+  critico_min: number | null;
+  critico_max: number | null;
+  texto_normal: string | null;
+  nota: string | null;
+};
+
+// ── Editor de rangos de referencia ───────────────────────────
+type RangeRow = {
+  sexo: Sex;
+  edadMin: string;
+  edadMax: string;
+  valorMin: string;
+  valorMax: string;
+  criticoMin: string;
+  criticoMax: string;
+  textoNormal: string;
+  nota: string;
+};
+
+const EMPTY_RANGE_ROW: RangeRow = {
+  sexo: "desconocido",
+  edadMin: "",
+  edadMax: "",
+  valorMin: "",
+  valorMax: "",
+  criticoMin: "",
+  criticoMax: "",
+  textoNormal: "",
+  nota: "",
+};
+
+function rangeToRow(r: ReferenceRangeInput): RangeRow {
+  const num = (v: number | null) => (v === null ? "" : String(v));
+  return {
+    sexo: r.sexo,
+    edadMin: num(r.edad_min_dias),
+    edadMax: num(r.edad_max_dias),
+    valorMin: num(r.valor_min),
+    valorMax: num(r.valor_max),
+    criticoMin: num(r.critico_min),
+    criticoMax: num(r.critico_max),
+    textoNormal: r.texto_normal ?? "",
+    nota: r.nota ?? "",
+  };
+}
+
+function rangeRowHasData(r: RangeRow): boolean {
+  return [r.edadMin, r.edadMax, r.valorMin, r.valorMax, r.criticoMin, r.criticoMax, r.textoNormal, r.nota].some(
+    (v) => v.trim() !== ""
+  );
+}
+
+/** Serializa las filas con datos al JSON que espera saveAnalyteAction. */
+function rangeRowsToJson(rows: RangeRow[]): string {
+  const clean = rows.filter(rangeRowHasData).map((r) => ({
+    sexo: r.sexo,
+    edad_min_dias: r.edadMin === "" ? null : Number.parseInt(r.edadMin, 10),
+    edad_max_dias: r.edadMax === "" ? null : Number.parseInt(r.edadMax, 10),
+    valor_min: r.valorMin === "" ? null : Number(r.valorMin),
+    valor_max: r.valorMax === "" ? null : Number(r.valorMax),
+    critico_min: r.criticoMin === "" ? null : Number(r.criticoMin),
+    critico_max: r.criticoMax === "" ? null : Number(r.criticoMax),
+    texto_normal: r.textoNormal.trim() || null,
+    nota: r.nota.trim() || null,
+  }));
+  return JSON.stringify(clean);
+}
+
+function ReferenceRangesEditor({
+  valueType,
+  initialRanges,
+}: {
+  valueType: string;
+  initialRanges: ReferenceRangeInput[];
+}) {
+  const [rows, setRows] = useState<RangeRow[]>(() =>
+    initialRanges.length > 0 ? initialRanges.map(rangeToRow) : [{ ...EMPTY_RANGE_ROW }]
+  );
+  const numeric = valueType === "numerico";
+
+  const updateRow = (i: number, patch: Partial<RangeRow>) =>
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <input type="hidden" name="ranges" value={rangeRowsToJson(rows)} />
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          Rangos de referencia (opcional)
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => setRows((prev) => [...prev, { ...EMPTY_RANGE_ROW }])}
+        >
+          <Plus className="h-3.5 w-3.5" /> Agregar rango
+        </Button>
+      </div>
+
+      {rows.map((row, i) => (
+        <div key={i} className="space-y-2 rounded-md border bg-card p-2.5">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Sexo</Label>
+              <Select value={row.sexo} onValueChange={(v) => updateRow(i, { sexo: v as Sex })}>
+                <SelectTrigger className="h-8 w-[104px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desconocido">Todos</SelectItem>
+                  <SelectItem value="M">Masc.</SelectItem>
+                  <SelectItem value="F">Fem.</SelectItem>
+                  <SelectItem value="otro">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Edad mín (días)</Label>
+              <Input
+                className="h-8 w-24 text-xs"
+                type="number"
+                min={0}
+                placeholder="0"
+                value={row.edadMin}
+                onChange={(e) => updateRow(i, { edadMin: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Edad máx (días)</Label>
+              <Input
+                className="h-8 w-24 text-xs"
+                type="number"
+                min={0}
+                placeholder="sin límite"
+                value={row.edadMax}
+                onChange={(e) => updateRow(i, { edadMax: e.target.value })}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8 text-muted-foreground hover:text-destructive"
+              title="Quitar este rango"
+              onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {numeric ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Mínimo</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  step="any"
+                  value={row.valorMin}
+                  onChange={(e) => updateRow(i, { valorMin: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Máximo</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  step="any"
+                  value={row.valorMax}
+                  onChange={(e) => updateRow(i, { valorMax: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Crítico mín</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  step="any"
+                  value={row.criticoMin}
+                  onChange={(e) => updateRow(i, { criticoMin: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Crítico máx</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  step="any"
+                  value={row.criticoMax}
+                  onChange={(e) => updateRow(i, { criticoMax: e.target.value })}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label className="text-xs">Valor normal (texto)</Label>
+              <Input
+                className="h-8 text-xs"
+                placeholder='p. ej. "Negativo"'
+                value={row.textoNormal}
+                onChange={(e) => updateRow(i, { textoNormal: e.target.value })}
+              />
+            </div>
+          )}
+
+          <Input
+            className="h-8 text-xs"
+            placeholder="Nota (opcional)"
+            value={row.nota}
+            onChange={(e) => updateRow(i, { nota: e.target.value })}
+          />
+        </div>
+      ))}
+
+      <p className="text-xs text-muted-foreground">
+        Edad en días: 30 ≈ 1 mes, 365 = 1 año; vacío = sin límite. El rango con sexo «Todos» y sin
+        edad aplica por defecto cuando no hay uno más específico.
+      </p>
+    </div>
+  );
+}
 
 function useCloseOnOk(
   state: { ok?: boolean; id?: string; error?: string } | undefined,
@@ -190,6 +422,7 @@ export function CategoryDialog({
 export function AnalyteDialog({
   categories,
   analyte,
+  ranges,
 }: {
   categories: Option[];
   analyte?: {
@@ -201,6 +434,8 @@ export function AnalyteDialog({
     value_type: string;
     category_id: string | null;
   };
+  /** Rangos de referencia vigentes (precargados para conservarlos al editar). */
+  ranges?: ReferenceRangeInput[];
 }) {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveAnalyteAction, undefined);
@@ -208,12 +443,17 @@ export function AnalyteDialog({
   const [nombre, setNombre] = useState(analyte?.nombre ?? "");
   const [codigo, setCodigo] = useState(analyte?.codigo ?? "");
   const [codigoTouched, setCodigoTouched] = useState(Boolean(analyte));
-  useCloseOnOk(state, () => setOpen(false));
+  // Remonta el editor de rangos tras guardar para no reusar valores en el próximo alta.
+  const [rangesResetKey, setRangesResetKey] = useState(0);
+  useCloseOnOk(state, () => {
+    setOpen(false);
+    setRangesResetKey((k) => k + 1);
+  });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {analyte ? (
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" title="Editar analito y rangos de referencia">
             <Pencil className="h-4 w-4" />
           </Button>
         ) : (
@@ -222,7 +462,7 @@ export function AnalyteDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{analyte ? "Editar analito" : "Nuevo analito"}</DialogTitle>
           <DialogDescription>Parámetro medible (p. ej. Hemoglobina).</DialogDescription>
@@ -231,14 +471,24 @@ export function AnalyteDialog({
           action={action}
           onSubmit={(e) => {
             const form = e.currentTarget;
-            const vMin = String((form.elements.namedItem("valor_min") as HTMLInputElement | null)?.value ?? "");
-            const vMax = String((form.elements.namedItem("valor_max") as HTMLInputElement | null)?.value ?? "");
-            if (vMin && vMax) {
-              const minN = Number(vMin);
-              const maxN = Number(vMax);
-              if (Number.isFinite(minN) && Number.isFinite(maxN) && minN > maxN) {
+            const raw = String(
+              (form.elements.namedItem("ranges") as HTMLInputElement | null)?.value ?? "[]"
+            );
+            let parsed: ReferenceRangeInput[];
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              return; // el servidor valida el formato
+            }
+            for (const r of parsed) {
+              const invalido =
+                (r.valor_min !== null && r.valor_max !== null && r.valor_min > r.valor_max) ||
+                (r.critico_min !== null && r.critico_max !== null && r.critico_min > r.critico_max) ||
+                (r.edad_min_dias !== null && r.edad_max_dias !== null && r.edad_min_dias > r.edad_max_dias);
+              if (invalido) {
                 e.preventDefault();
-                toast.error("Rango inválido");
+                toast.error("Rango inválido: un mínimo no puede ser mayor que su máximo.");
+                return;
               }
             }
           }}
@@ -327,21 +577,11 @@ export function AnalyteDialog({
               <Input id="a_metodo" name="metodo" defaultValue={analyte?.metodo ?? ""} />
             </div>
           </div>
-          {!analyte && valueType === "numerico" && (
-            <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3">
-              <div className="col-span-2 text-xs font-medium text-muted-foreground">
-                Rango de referencia general (opcional)
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="valor_min">Mínimo</Label>
-                <Input id="valor_min" name="valor_min" type="number" step="any" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="valor_max">Máximo</Label>
-                <Input id="valor_max" name="valor_max" type="number" step="any" />
-              </div>
-            </div>
-          )}
+          <ReferenceRangesEditor
+            key={`${analyte?.id ?? "nuevo"}:${rangesResetKey}`}
+            valueType={valueType}
+            initialRanges={ranges ?? []}
+          />
           <div className="flex justify-end">
             <StickyFormActions
               placement="inline"

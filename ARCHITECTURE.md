@@ -65,6 +65,7 @@ Migraciones en `supabase/migrations/` (orden numérico):
 | `0018_inventory` | Inventario: `LIS_inventory_items`, `LIS_inventory_stock` (por sede/lote/vencimiento), `LIS_inventory_movements`; RPC `inventory_register_movement` (atómico), vistas `v_inventory_stock` y `v_inventory_expiring`; bucket público `inventory` para fotos; RLS y auditoría. |
 | `0022_critical_security_fixes` | Correcciones críticas de la auditoría QA: trigger que protege `es_superadmin`/`email` del perfil; `upsert_result` exige rol validador para firmar y rechaza guardados sin firma sobre resultados validados; rollup de item contra analitos esperados del estudio; `create_order` valida paciente/estudio de la org; `inventory_register_movement` valida sede destino y serializa por artículo (`FOR UPDATE`); índices únicos anti-duplicado en `LIS_invoices`. |
 | `0023_hardening_flows` | Endurecimiento de flujos (hallazgos altos): `eval_flag` devuelve NULL sin rango configurado y flag cualitativo `anormal` por `texto_normal`; `upsert_result` bloquea órdenes entregada/anulada; máquinas de estado en BD para orden (entregar solo si completada, anular con `motivo_anulacion`) y muestra (transiciones pre-analíticas, rechazo con motivo); rollup de orden ignora items rechazados; DELETE restringido a admin (policies RESTRICTIVE) en pacientes/items/muestras/resultados/entregas/facturas; se elimina el INSERT directo en `LIS_inventory_movements`; bucket `inventory` con límite de tamaño y MIME. |
+| `0027_results_require_processed_sample` | Guarda de fase post-analítica: `upsert_result` exige una muestra vinculada `procesada` para el primer resultado del estudio (los ya iniciados siguen editables); `v_order_overview` expone `items_ingresables` y la UI de Resultados habilita el ingreso solo por estudios procesados. |
 
 ### Diagrama lógico (resumen)
 
@@ -88,10 +89,12 @@ AGENDA (opcional): cita programada → confirmada → check-in
        o deriva a /ordenes/nueva enlazando cita → orden
 Recepción crea ORDEN (create_order) → items con precio (snapshot)
    → Toma de MUESTRA (barcode, LIS_sample_items) → item pasa a "en_proceso"
-      → Analista ingresa RESULTADOS (upsert_result: flag + rango automáticos)
-         → Validador FIRMA → item "validado" → rollup → orden "completada"
-            → ENTREGA (token de portal / email) → orden "entregada"
-               → FACTURACIÓN (Wally) → invoice
+      → muestra avanza recibida → en_analisis → PROCESADA
+         → Analista ingresa RESULTADOS (upsert_result exige muestra procesada
+           del estudio; flag + rango automáticos)
+          → Validador FIRMA → item "validado" → rollup → orden "completada"
+             → ENTREGA (token de portal / email) → orden "entregada"
+                → FACTURACIÓN (Wally) → invoice
 Cada transición ↑ queda en LIS_audit_log (trazabilidad).
 ```
 
@@ -140,7 +143,9 @@ Se puede extender a SMS/WhatsApp con el mismo patrón de adaptador.
 Categorías, analitos y estudios pueden ser **globales** (plantilla compartida,
 `organization_id NULL`) o **propios** de una organización. Los estudios se componen
 de analitos (`LIS_study_analytes`) y cada analito tiene rangos de referencia por sexo y
-edad, con soporte de valores críticos.
+edad, con soporte de valores críticos. Los rangos de los analitos propios se editan
+desde el catálogo (pestaña Analitos): reemplazo completo por analito con los valores
+vigentes precargados (`saveAnalyteAction`).
 
 ### Agendamiento (`/agenda`)
 Citas por sede con ciclo de vida propio (`programada → confirmada → en_espera →

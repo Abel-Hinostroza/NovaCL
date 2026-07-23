@@ -12,6 +12,7 @@ import {
   StudyDialog,
   type Option,
   type AnalyteOption,
+  type ReferenceRangeInput,
 } from "@/components/catalog/catalog-forms";
 import { StudyPricesDialog } from "@/components/catalog/catalog-prices";
 import { DeleteCatalogButton, AdoptStudyButton } from "@/components/catalog/catalog-row-actions";
@@ -34,6 +35,26 @@ function CategoryChip({ category }: { category: JoinedCategory }) {
         aria-hidden
       />
       {category.nombre}
+    </span>
+  );
+}
+
+/** Resumen compacto del rango de referencia: el general si existe, si no el
+ *  primero; "· +n" indica rangos adicionales por sexo/edad. */
+function RangeSummary({ ranges }: { ranges?: ReferenceRangeInput[] }) {
+  if (!ranges || ranges.length === 0) return <span className="text-muted-foreground">—</span>;
+  const shown =
+    ranges.find((r) => r.sexo === "desconocido" && r.edad_min_dias === null && r.edad_max_dias === null) ??
+    ranges[0];
+  const text =
+    shown.valor_min !== null || shown.valor_max !== null
+      ? `${shown.valor_min ?? ""} – ${shown.valor_max ?? ""}`
+      : shown.texto_normal ?? "—";
+  const extra = ranges.length - 1;
+  return (
+    <span>
+      {text}
+      {extra > 0 && <span className="text-xs text-muted-foreground"> · +{extra}</span>}
     </span>
   );
 }
@@ -82,6 +103,39 @@ export default async function CatalogoPage() {
         .order("orden"),
       supabase.from("LIS_specimen_types").select("id,nombre,codigo").eq("activo", true).order("nombre"),
     ]);
+
+  // Rangos de referencia vigentes de los analitos visibles (propios + globales),
+  // para precargarlos en el editor y mostrar un resumen en la tabla.
+  const analyteIds = (analytes ?? []).map((a) => a.id);
+  const { data: rangeRows } = await supabase
+    .from("LIS_reference_ranges")
+    .select("analyte_id,sexo,edad_min_dias,edad_max_dias,valor_min,valor_max,critico_min,critico_max,texto_normal,nota")
+    .in("analyte_id", analyteIds.length > 0 ? analyteIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const rangesByAnalyte = new Map<string, ReferenceRangeInput[]>();
+  for (const r of rangeRows ?? []) {
+    const list = rangesByAnalyte.get(r.analyte_id) ?? [];
+    list.push({
+      sexo: r.sexo,
+      edad_min_dias: r.edad_min_dias,
+      edad_max_dias: r.edad_max_dias,
+      valor_min: r.valor_min,
+      valor_max: r.valor_max,
+      critico_min: r.critico_min,
+      critico_max: r.critico_max,
+      texto_normal: r.texto_normal,
+      nota: r.nota,
+    });
+    rangesByAnalyte.set(r.analyte_id, list);
+  }
+  // Orden estable: primero el rango general, luego por edad mínima.
+  for (const list of rangesByAnalyte.values()) {
+    list.sort(
+      (a, b) =>
+        Number(a.sexo !== "desconocido") - Number(b.sexo !== "desconocido") ||
+        (a.edad_min_dias ?? 0) - (b.edad_min_dias ?? 0)
+    );
+  }
 
   // Opciones para componer estudios/analitos: propias + plantillas globales
   // (para poder editar un estudio adoptado que referencia analitos globales).
@@ -234,6 +288,7 @@ export default async function CatalogoPage() {
                     <TableHead>Unidad</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Método</TableHead>
+                    <TableHead>Referencia</TableHead>
                     <TableHead>Origen</TableHead>
                     {canEdit && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
@@ -251,6 +306,9 @@ export default async function CatalogoPage() {
                         <TableCell className="text-sm text-muted-foreground">{a.unidad ?? "—"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.value_type}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.metodo ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <RangeSummary ranges={rangesByAnalyte.get(a.id)} />
+                        </TableCell>
                         <TableCell>
                           <Badge className={own ? "bg-primary/10 text-primary" : "bg-muted text-foreground"}>
                             {own ? "Propio" : "Global"}
@@ -262,6 +320,7 @@ export default async function CatalogoPage() {
                               <div className="flex items-center justify-end gap-1">
                                 <AnalyteDialog
                                   categories={categoryOptions}
+                                  ranges={rangesByAnalyte.get(a.id) ?? []}
                                   analyte={{
                                     id: a.id,
                                     codigo: a.codigo,

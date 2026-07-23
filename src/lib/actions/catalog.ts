@@ -22,6 +22,55 @@ async function catalogAdminCtx(): Promise<{ ctx: Ctx } | { error: string }> {
 
 const MAX_NUMERIC_12_2 = 999_999_999.99; // tope de numeric(12,2)
 
+// ── Rangos de referencia ─────────────────────────────────────
+const MAX_EDAD_DIAS = 73_000; // 200 años
+
+const rangeSchema = z.object({
+  sexo: z.enum(["M", "F", "otro", "desconocido"]),
+  edad_min_dias: z.number().int().min(0).max(MAX_EDAD_DIAS).nullable(),
+  edad_max_dias: z.number().int().min(0).max(MAX_EDAD_DIAS).nullable(),
+  valor_min: z.number().nullable(),
+  valor_max: z.number().nullable(),
+  critico_min: z.number().nullable(),
+  critico_max: z.number().nullable(),
+  texto_normal: z.string().trim().max(200).nullable().transform((v) => v || null),
+  nota: z.string().trim().max(500).nullable().transform((v) => v || null),
+});
+const rangesSchema = z.array(rangeSchema).max(50);
+
+type RangeInput = z.infer<typeof rangeSchema>;
+
+/** Una fila solo se persiste si aporta algún dato (el editor puede enviar
+ *  la fila "general" vacía cuando el usuario no define ningún rango). */
+function rangeHasData(r: RangeInput): boolean {
+  return (
+    [r.edad_min_dias, r.edad_max_dias, r.valor_min, r.valor_max, r.critico_min, r.critico_max].some(
+      (v) => v !== null
+    ) || !!(r.texto_normal || r.nota)
+  );
+}
+
+/** Valida coherencia y magnitudes de un set de rangos; devuelve mensaje de error o null. */
+function validateRanges(ranges: RangeInput[]): string | null {
+  for (const r of ranges) {
+    for (const v of [r.valor_min, r.valor_max, r.critico_min, r.critico_max]) {
+      if (v !== null && (!Number.isFinite(v) || Math.abs(v) > MAX_NUMERIC_12_2)) {
+        return "Algún valor del rango de referencia no es válido.";
+      }
+    }
+    if (r.valor_min !== null && r.valor_max !== null && r.valor_min > r.valor_max) {
+      return "El valor mínimo no puede ser mayor que el valor máximo.";
+    }
+    if (r.critico_min !== null && r.critico_max !== null && r.critico_min > r.critico_max) {
+      return "El crítico mínimo no puede ser mayor que el crítico máximo.";
+    }
+    if (r.edad_min_dias !== null && r.edad_max_dias !== null && r.edad_min_dias > r.edad_max_dias) {
+      return "La edad mínima no puede ser mayor que la edad máxima.";
+    }
+  }
+  return null;
+}
+
 // ── Categorías ───────────────────────────────────────────────
 export async function saveCategoryAction(_prev: unknown, formData: FormData) {
   const guard = await catalogAdminCtx();
@@ -202,7 +251,9 @@ export async function saveAnalyteAction(_prev: unknown, formData: FormData) {
   const categoryId = String(formData.get("category_id") ?? "");
   const valueType = String(formData.get("value_type") ?? "numerico") as ValueType;
   const decimales = Number(formData.get("decimales") ?? 2);
-  // rango de referencia (opcional, simple)
+  // rangos de referencia (JSON serializado por ReferenceRangesEditor)
+  const rangesRaw = String(formData.get("ranges") ?? "");
+  // compat: alta rápida con un único rango general (valor_min/valor_max)
   const valorMin = formData.get("valor_min");
   const valorMax = formData.get("valor_max");
 
@@ -221,6 +272,22 @@ export async function saveAnalyteAction(_prev: unknown, formData: FormData) {
   }
   if (minN !== null && maxN !== null && minN > maxN) {
     return { error: "El valor mínimo no puede ser mayor que el valor máximo." };
+  }
+
+  // Rangos de referencia enviados por el editor (null = no se enviaron: compat legacy)
+  let ranges: RangeInput[] | null = null;
+  if (rangesRaw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rangesRaw);
+    } catch {
+      return { error: "Rangos de referencia inválidos." };
+    }
+    const result = rangesSchema.safeParse(parsed);
+    if (!result.success) return { error: "Rangos de referencia inválidos." };
+    ranges = result.data.filter(rangeHasData);
+    const rangesError = validateRanges(ranges);
+    if (rangesError) return { error: rangesError };
   }
 
   const supabase = await createClient();
@@ -243,8 +310,27 @@ export async function saveAnalyteAction(_prev: unknown, formData: FormData) {
     return { error: error.code === "23505" ? "Ya existe un analito con ese código." : friendlyDbError(error, "No se pudo guardar.") };
   }
 
-  // rango de referencia general (solo al crear, si se proporcionó)
-  if (!id && valueType === "numerico" && (minN !== null || maxN !== null)) {
+  // Rangos de referencia: reemplazo completo (mismo patrón que la composición
+  // de estudios). El editor siempre envía los rangos vigentes precargados, así
+  // los valores por defecto se conservan salvo cambios explícitos del usuario.
+  if (ranges !== null) {
+    const { error: delRangesError } = await supabase
+      .from("LIS_reference_ranges")
+      .delete()
+      .eq("analyte_id", saved.id);
+    if (delRangesError) {
+      return { error: friendlyDbError(delRangesError, "El analito se guardó pero no sus rangos de referencia.") };
+    }
+    if (ranges.length > 0) {
+      const { error: insRangesError } = await supabase.from("LIS_reference_ranges").insert(
+        ranges.map((r) => ({ ...r, analyte_id: saved.id }))
+      );
+      if (insRangesError) {
+        return { error: friendlyDbError(insRangesError, "El analito se guardó pero no sus rangos de referencia.") };
+      }
+    }
+  } else if (!id && valueType === "numerico" && (minN !== null || maxN !== null)) {
+    // compat legacy: rango general solo al crear, si se proporcionó
     const { error: rangeError } = await supabase.from("LIS_reference_ranges").insert({
       analyte_id: saved.id,
       sexo: "desconocido",

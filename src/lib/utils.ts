@@ -37,6 +37,25 @@ export function formatDate(
   });
 }
 
+/**
+ * Fecha/hora compacta para la etiqueta del tubo: "23/07/26 10:30".
+ * Misma razón de zona fija que `formatDate` (America/Lima).
+ */
+export function formatCompactDateTime(value?: string | null, timeZone = "America/Lima") {
+  if (!value) return "—";
+  return new Date(value)
+    .toLocaleString("es-PE", {
+      timeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+    .replace(",", "");
+}
+
 /** Calcula la edad a partir de una fecha de nacimiento. */
 export function calcAge(fecha?: string | null): string {
   if (!fecha) return "—";
@@ -63,9 +82,23 @@ export function initials(name: string) {
     .join("");
 }
 
-/** Genera un código de barras simple para muestras. */
+/**
+ * Genera el código de barras de una muestra (10 caracteres).
+ *
+ * El largo está acotado a propósito: la etiqueta del tubo es de 50 mm y un
+ * Code 128B de 10 caracteres ocupa 165 módulos (~44 mm a 0.26 mm/módulo),
+ * que es lo máximo que cabe con zona muda reglamentaria. Un código más largo
+ * obligaría a reducir el módulo por debajo de lo legible.
+ *   - 6 dígitos base36 del timestamp (ciclo de ~25 días)
+ *   - 3 dígitos base36 aleatorios (46 656 combinaciones por ms)
+ * La unicidad la garantiza además el constraint UNIQUE de LIS_samples.barcode;
+ * los códigos largos generados antes de este cambio siguen siendo válidos.
+ */
 export function generateBarcode(prefix = "M") {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const ts = Date.now().toString(36).toUpperCase().slice(-6);
+  const rnd = Math.floor(Math.random() * 46656)
+    .toString(36)
+    .toUpperCase()
+    .padStart(3, "0");
   return `${prefix}${ts}${rnd}`;
 }

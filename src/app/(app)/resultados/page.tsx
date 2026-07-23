@@ -30,6 +30,9 @@ export default async function ResultadosPage({
   // Ojo: el rollup mantiene la orden en 'registrada' hasta validar el primer
   // estudio; tomar la muestra NO cambia el estado de la orden, por eso hay que
   // incluir 'registrada'/'en_toma' o una orden recién puesta en proceso no saldría.
+  // El botón Ingresar solo se habilita si la orden tiene al menos un estudio
+  // con muestra procesada (items_ingresables): el ingreso es post-analítico y
+  // no puede anticiparse (la BD también lo rechaza en upsert_result).
   let query = supabase
     .from("v_order_overview")
     .select("*")
@@ -87,11 +90,23 @@ export default async function ResultadosPage({
                       {formatDate(o.created_at)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button asChild size="sm">
-                        <Link href={`/resultados/${o.id}?from=list`}>
-                          <FlaskConical className="h-4 w-4" /> Ingresar <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
+                      {o.items_ingresables > 0 ? (
+                        <Button asChild size="sm">
+                          <Link href={`/resultados/${o.id}?from=list`}>
+                            <FlaskConical className="h-4 w-4" /> Ingresar <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled
+                          title="Aún no hay muestras procesadas para esta orden"
+                          className="text-muted-foreground"
+                        >
+                          <FlaskConical className="h-4 w-4" /> Sin procesar
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

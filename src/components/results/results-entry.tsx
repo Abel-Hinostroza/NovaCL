@@ -51,6 +51,9 @@ export type ItemGroup = {
   orderItemId: string;
   studyNombre: string;
   status: ItemStatus;
+  /** true si la muestra del estudio ya fue procesada (o el estudio ya tiene
+   * resultados cargados): solo entonces el ingreso está habilitado. */
+  processable: boolean;
   analytes: AnalyteRow[];
 };
 
@@ -69,6 +72,9 @@ export function ResultsEntry({
   // paso del flujo es Entrega. Los inputs quedan bloqueados y Guardar/Validar no
   // tienen efecto, así que la barra ofrece el salto al siguiente módulo.
   const allValidated = groups.length > 0 && groups.every((g) => g.status === "validado");
+  // Ningún estudio con muestra procesada: no hay trabajo post-analítico que
+  // hacer aquí todavía (acceso directo por URL antes de procesar la muestra).
+  const anyProcessable = groups.some((g) => g.processable);
   const [criticos, setCriticos] = useState<CriticalValue[]>([]);
   const [deltas, setDeltas] = useState<DeltaAlert[]>([]);
   const [avisadoA, setAvisadoA] = useState("");
@@ -92,6 +98,9 @@ export function ResultsEntry({
   function collect(): ResultInput[] {
     const inputs: ResultInput[] = [];
     for (const g of groups) {
+      // Estudios sin muestra procesada no se envían: el ingreso es
+      // post-analítico (el servidor también los rechaza en upsert_result).
+      if (!g.processable) continue;
       for (const a of g.analytes) {
         // Los resultados ya validados nunca se reenvían: un guardado de
         // borrador no puede revertir una firma (la BD también lo rechaza);
@@ -157,7 +166,14 @@ export function ResultsEntry({
         <Card key={g.orderItemId}>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">{g.studyNombre}</CardTitle>
-            <Badge className="bg-muted text-foreground">{ITEM_STATUS_LABELS[g.status]}</Badge>
+            <div className="flex items-center gap-2">
+              {!g.processable && (
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Muestra sin procesar — solo lectura
+                </span>
+              )}
+              <Badge className="bg-muted text-foreground">{ITEM_STATUS_LABELS[g.status]}</Badge>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -173,7 +189,9 @@ export function ResultsEntry({
               <TableBody>
                 {g.analytes.map((a) => {
                   const key = `${g.orderItemId}:${a.analyteId}`;
-                  const locked = a.status === "validado";
+                  // Bloqueado si ya está validado o si la muestra del estudio
+                  // aún no fue procesada (fase analítica sin concluir).
+                  const locked = a.status === "validado" || !g.processable;
                   // Indicador en vivo: recalculado con el valor que se está
                   // digitando, con el mismo criterio que el servidor. Si el campo
                   // está vacío, se muestra el flag del último guardado.
@@ -260,6 +278,11 @@ export function ResultsEntry({
               </Link>
             </Button>
           </>
+        ) : !anyProcessable ? (
+          <span className="flex-1 text-sm text-muted-foreground">
+            Ningún estudio tiene la muestra procesada todavía. El ingreso de
+            resultados se habilita al concluir el procesamiento (módulo Muestras).
+          </span>
         ) : (
           <div className="flex flex-1 justify-end gap-2">
             {/* Carga masiva de resultados desde un documento (CSV/analizador).

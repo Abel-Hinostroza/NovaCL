@@ -640,6 +640,7 @@ export interface Database {
           items_total: number;
           items_validados: number;
           items_pendientes: number;
+          items_ingresables: number;
         };
       };
     };

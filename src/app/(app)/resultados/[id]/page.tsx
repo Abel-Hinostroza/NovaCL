@@ -48,7 +48,23 @@ export default async function ResultEntryPage({
     : { data: [] };
 
   const resultMap = new Map<string, NonNullable<typeof results>[number]>();
-  for (const r of results ?? []) resultMap.set(`${r.order_item_id}:${r.analyte_id}`, r);
+  const itemsWithResults = new Set<string>();
+  for (const r of results ?? []) {
+    resultMap.set(`${r.order_item_id}:${r.analyte_id}`, r);
+    itemsWithResults.add(r.order_item_id);
+  }
+
+  // Estudios cuya muestra ya concluyó la fase analítica. Solo esos aceptan
+  // ingreso de resultados (post-analítica); el resto se muestra bloqueado.
+  // upsert_result aplica la misma regla en el servidor.
+  const { data: processedLinks } = itemIds.length
+    ? await supabase
+        .from("LIS_sample_items")
+        .select("order_item_id, samples:LIS_samples!inner(status)")
+        .in("order_item_id", itemIds)
+        .eq("samples.status", "procesada")
+    : { data: [] };
+  const processedItemIds = new Set((processedLinks ?? []).map((l) => l.order_item_id));
 
   // Rangos de referencia del catálogo, para mostrar la referencia y el indicador
   // ANTES de guardar (el técnico ve el objetivo mientras digita). El servidor
@@ -101,6 +117,8 @@ export default async function ResultEntryPage({
       orderItemId: it.id,
       studyNombre: it.study_nombre,
       status: it.status,
+      // Ingresable: muestra procesada o trabajo ya iniciado (correcciones).
+      processable: processedItemIds.has(it.id) || itemsWithResults.has(it.id),
       analytes: sa.map((x) => {
         const r = resultMap.get(`${it.id}:${x.analytes.id}`);
         // Rango aplicable al paciente (sexo/edad); alimenta la referencia
