@@ -174,6 +174,7 @@ export interface Database {
         codigo: string;
         nombre: string;
         descripcion: string | null;
+        color: string | null;
         orden: number;
         activo: boolean;
         created_at: string;

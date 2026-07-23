@@ -37,6 +37,14 @@ export type PermRow = {
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
 /**
+ * Módulos configurables por organización. Se excluye `admin_organizaciones`:
+ * es un módulo de plataforma cuyo acceso lo gobierna `es_superadmin`
+ * (requireSuperadmin), no la matriz de permisos. Mostrarlo aquí sería
+ * engañoso: marcarlo solo agregaría un enlace muerto al menú.
+ */
+const EDITABLE_MODULES = MODULES.filter((m) => m !== "admin_organizaciones");
+
+/**
  * Matriz granular de permisos: por rol y alcance (toda la organización o una
  * sede), define qué módulos se ven y cuáles se editan. Sin sobrescritura
  * aplican los defaults del sistema; "Restaurar defaults" las elimina.
@@ -59,7 +67,7 @@ export function PermissionsMatrix({
   const initial = useMemo(() => {
     const defaults = defaultPermsFor([role]);
     const map = {} as Record<ModuleKey, { view: boolean; edit: boolean }>;
-    for (const m of MODULES) {
+    for (const m of EDITABLE_MODULES) {
       const exact = rows.find((r) => r.role === role && r.sede_id === sedeId && r.module === m);
       const orgWide =
         sedeId !== null
@@ -93,7 +101,7 @@ export function PermissionsMatrix({
   }
 
   function save() {
-    const entries: PermissionEntry[] = MODULES.map((m) => ({
+    const entries: PermissionEntry[] = EDITABLE_MODULES.map((m) => ({
       module: m,
       view: matrix[m].view,
       edit: matrix[m].edit,
@@ -163,7 +171,7 @@ export function PermissionsMatrix({
             </tr>
           </thead>
           <tbody>
-            {MODULES.map((m) => (
+            {EDITABLE_MODULES.map((m) => (
               <tr key={m} className="border-b transition-colors last:border-0 hover:bg-muted/40">
                 <td className={cn("px-3 py-2", !matrix[m].view && "text-muted-foreground line-through")}>
                   {MODULE_LABELS[m]}

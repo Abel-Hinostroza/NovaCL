@@ -286,6 +286,7 @@ create table public."LIS_test_categories" (
   codigo          text not null,
   nombre          text not null,
   descripcion     text,
+  color           text,
   orden           int not null default 0,
   activo          boolean not null default true,
   created_at      timestamptz not null default now(),
@@ -1114,7 +1115,7 @@ begin
   ) values (
     v_org, p_order_item_id, p_analyte_id, v_analyte.nombre, v_analyte.unidad,
     p_valor_num, p_valor_texto, v_flag, v_rango_txt, v_analyte.metodo, p_nota,
-    case when p_validar then 'validado' else 'preliminar' end,
+    (case when p_validar then 'validado' else 'preliminar' end)::app.result_status,
     auth.uid(), now(),
     case when p_validar then auth.uid() end,
     case when p_validar then now() end
@@ -1288,13 +1289,34 @@ create policy studyanalyte_write on public."LIS_study_analytes" for all to authe
     and s.organization_id is not null and app.can_admin_org(s.organization_id)));
 
 create policy studyprice_select on public."LIS_study_prices" for select to authenticated
-  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
-    and (s.organization_id is null or s.organization_id in (select app.member_org_ids()))));
+  using (
+    case
+      when sede_id is null then
+        exists (select 1 from public."LIS_studies" s where s.id = study_id
+          and (s.organization_id is null or s.organization_id in (select app.member_org_ids())))
+      else
+        sede_id in (select app.member_sede_ids())
+    end
+  );
 create policy studyprice_write on public."LIS_study_prices" for all to authenticated
-  using (exists (select 1 from public."LIS_studies" s where s.id = study_id
-    and s.organization_id is not null and app.can_admin_org(s.organization_id)))
-  with check (exists (select 1 from public."LIS_studies" s where s.id = study_id
-    and s.organization_id is not null and app.can_admin_org(s.organization_id)));
+  using (
+    case
+      when sede_id is null then
+        exists (select 1 from public."LIS_studies" s where s.id = study_id
+          and s.organization_id is not null and app.can_admin_org(s.organization_id))
+      else
+        app.has_sede_role(sede_id, array['org_admin','sede_admin']::app.role[])
+    end
+  )
+  with check (
+    case
+      when sede_id is null then
+        exists (select 1 from public."LIS_studies" s where s.id = study_id
+          and s.organization_id is not null and app.can_admin_org(s.organization_id))
+      else
+        app.has_sede_role(sede_id, array['org_admin','sede_admin']::app.role[])
+    end
+  );
 
 -- ─────────────────────────────────────────────────────────────
 -- Pacientes (org-scoped). Escritura: recepcion/admin.

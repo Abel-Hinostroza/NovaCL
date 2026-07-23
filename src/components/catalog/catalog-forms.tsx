@@ -30,6 +30,7 @@ import {
 import { codeFromName } from "@/lib/text/slug";
 import { cn } from "@/lib/utils";
 import { StickyFormActions } from "@/components/forms/sticky-form-actions";
+import { CATEGORY_PALETTE, resolveCategoryColor } from "@/lib/catalog/category-colors";
 
 export type Option = { id: string; nombre: string; codigo?: string };
 export type AnalyteOption = Option & { unidad: string | null };
@@ -56,26 +57,43 @@ function useCloseOnOk(
 }
 
 // ── Categoría ────────────────────────────────────────────────
-export function CategoryDialog() {
+export function CategoryDialog({
+  category,
+}: {
+  category?: { id: string; codigo: string; nombre: string; color: string | null };
+}) {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveCategoryAction, undefined);
-  const [nombre, setNombre] = useState("");
-  const [codigo, setCodigo] = useState("");
-  const [codigoTouched, setCodigoTouched] = useState(false);
+  const [nombre, setNombre] = useState(category?.nombre ?? "");
+  const [codigo, setCodigo] = useState(category?.codigo ?? "");
+  const [codigoTouched, setCodigoTouched] = useState(Boolean(category));
+  const [color, setColor] = useState(category?.color ?? "");
   useCloseOnOk(state, () => setOpen(false));
+
+  // Vista previa: color elegido, o el derivado del código si es "Automático".
+  const previewColor = resolveCategoryColor(codigo || "?", color || null);
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
-          <FolderPlus className="h-4 w-4" /> Nueva categoría
-        </Button>
+        {category ? (
+          <Button variant="ghost" size="icon" title="Editar categoría">
+            <Pencil className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button variant="outline">
+            <FolderPlus className="h-4 w-4" /> Nueva categoría
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nueva categoría</DialogTitle>
+          <DialogTitle>{category ? "Editar categoría" : "Nueva categoría"}</DialogTitle>
           <DialogDescription>Agrupa estudios y analitos (p. ej. Serología).</DialogDescription>
         </DialogHeader>
         <form action={action} className="space-y-4">
+          {category && <input type="hidden" name="id" value={category.id} />}
+          <input type="hidden" name="color" value={color} />
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label htmlFor="codigo">Código</Label>
@@ -113,11 +131,52 @@ export function CategoryDialog() {
               />
             </div>
           </div>
+
+          <div className="space-y-2">
+            <Label>
+              Color{" "}
+              <span
+                className="ml-1 inline-block h-3 w-3 rounded-full align-middle ring-1 ring-black/10"
+                style={{ backgroundColor: previewColor }}
+              />
+            </Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setColor("")}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-xs",
+                  color === "" ? "border-primary bg-primary/10 text-primary" : "hover:bg-accent"
+                )}
+                title="Derivar el color automáticamente del código"
+              >
+                Automático
+              </button>
+              {CATEGORY_PALETTE.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setColor(c.hex)}
+                  title={c.label}
+                  aria-label={c.label}
+                  className={cn(
+                    "h-6 w-6 rounded-full ring-1 ring-black/10 transition",
+                    color.toUpperCase() === c.hex ? "ring-2 ring-offset-2 ring-foreground" : ""
+                  )}
+                  style={{ backgroundColor: c.hex }}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El color acompaña al código y nombre; no los reemplaza.
+            </p>
+          </div>
+
           <div className="flex justify-end">
             <StickyFormActions
               placement="inline"
-              label="Crear categoría"
-              busyLabel="Creando…"
+              label={category ? "Guardar" : "Crear categoría"}
+              busyLabel={category ? "Guardando…" : "Creando…"}
               cancel={{ label: "Cancelar", onClick: () => setOpen(false) }}
             />
           </div>

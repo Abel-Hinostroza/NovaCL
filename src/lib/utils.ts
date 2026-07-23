@@ -14,11 +14,22 @@ export function formatMoney(value: number, currency = "PEN", locale = "es-PE") {
   }).format(value ?? 0);
 }
 
-/** Formatea una fecha legible. */
-export function formatDate(value?: string | null, withTime = false) {
+/**
+ * Formatea una fecha legible en hora de Perú.
+ *
+ * La zona se fija a America/Lima (UTC−5) a propósito: los Server Components se
+ * renderizan en UTC en Vercel, así que sin esto la hora saldría 5 horas
+ * adelantada y, cerca de medianoche, hasta con el día equivocado.
+ */
+export function formatDate(
+  value?: string | null,
+  withTime = false,
+  timeZone = "America/Lima"
+) {
   if (!value) return "—";
   const d = new Date(value);
   return d.toLocaleString("es-PE", {
+    timeZone,
     year: "numeric",
     month: "short",
     day: "2-digit",

@@ -13,9 +13,30 @@ import {
   type Option,
   type AnalyteOption,
 } from "@/components/catalog/catalog-forms";
+import { StudyPricesDialog } from "@/components/catalog/catalog-prices";
+import { DeleteCatalogButton, AdoptStudyButton } from "@/components/catalog/catalog-row-actions";
+import { resolveCategoryColor } from "@/lib/catalog/category-colors";
 import { formatMoney } from "@/lib/utils";
 
 export const metadata = { title: "Catálogo" };
+
+type JoinedCategory = { nombre: string; codigo: string; color: string | null } | null;
+
+/** Chip de categoría: punto de color (señal secundaria) + nombre. */
+function CategoryChip({ category }: { category: JoinedCategory }) {
+  if (!category) return <span className="text-muted-foreground">—</span>;
+  const hex = resolveCategoryColor(category.codigo ?? category.nombre, category.color);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+        style={{ backgroundColor: hex }}
+        aria-hidden
+      />
+      {category.nombre}
+    </span>
+  );
+}
 
 export default async function CatalogoPage() {
   const ctx = await getSessionContext();
@@ -25,43 +46,62 @@ export default async function CatalogoPage() {
   const orFilter = `organization_id.is.null,organization_id.eq.${orgId}`;
   const canEdit = hasRole(ctx.roles, ["org_admin", "sede_admin"]) || !!ctx.profile?.es_superadmin;
 
+  // Alcance de precios: org_admin/superadmin editan todas las sedes + base;
+  // sede_admin solo las sedes donde tiene ese rol.
+  const orgMemberships = ctx.memberships.filter((m) => m.organization_id === orgId && m.activo);
+  const isOrgAdmin = !!ctx.profile?.es_superadmin || orgMemberships.some((m) => m.role === "org_admin");
+  const orgSedes = ctx.sedes.filter((s) => s.organization_id === orgId);
+  const priceSedes = isOrgAdmin
+    ? orgSedes
+    : orgSedes.filter((s) =>
+        orgMemberships.some((m) => m.role === "sede_admin" && m.sede_id === s.id)
+      );
+  const canEditPrices = isOrgAdmin || priceSedes.length > 0;
+
   const [{ data: studies }, { data: analytes }, { data: categories }, { data: specimenTypes }] =
     await Promise.all([
       supabase
         .from("LIS_studies")
         .select(
-          "id,codigo,nombre,requiere_ayuno,tiempo_entrega_h,category_id,specimen_type_id,organization_id, test_categories:LIS_test_categories(nombre), study_analytes:LIS_study_analytes(analyte_id), study_prices:LIS_study_prices(precio,sede_id)"
+          "id,codigo,nombre,requiere_ayuno,tiempo_entrega_h,category_id,specimen_type_id,organization_id, test_categories:LIS_test_categories(nombre,codigo,color), study_analytes:LIS_study_analytes(analyte_id), study_prices:LIS_study_prices(precio,sede_id)"
         )
         .eq("activo", true)
         .or(orFilter)
         .order("nombre"),
       supabase
         .from("LIS_analytes")
-        .select("id,codigo,nombre,unidad,value_type,metodo,category_id,organization_id, test_categories:LIS_test_categories(nombre)")
+        .select("id,codigo,nombre,unidad,value_type,metodo,category_id,organization_id, test_categories:LIS_test_categories(nombre,codigo,color)")
         .eq("activo", true)
         .or(orFilter)
         .order("nombre"),
       supabase
         .from("LIS_test_categories")
-        .select("id,codigo,nombre,organization_id")
+        .select("id,codigo,nombre,color,organization_id")
+        .eq("activo", true)
         .or(orFilter)
         .order("orden"),
       supabase.from("LIS_specimen_types").select("id,nombre,codigo").eq("activo", true).order("nombre"),
     ]);
 
-  const categoryOptions: Option[] = (categories ?? [])
-    .filter((c) => c.organization_id === orgId) // solo se pueden asignar categorías propias
-    .map((c) => ({ id: c.id, nombre: c.nombre, codigo: c.codigo }));
+  // Opciones para componer estudios/analitos: propias + plantillas globales
+  // (para poder editar un estudio adoptado que referencia analitos globales).
+  const categoryOptions: Option[] = (categories ?? []).map((c) => ({
+    id: c.id,
+    nombre: c.organization_id ? c.nombre : `${c.nombre} (global)`,
+    codigo: c.codigo,
+  }));
   const specimenOptions: Option[] = (specimenTypes ?? []).map((s) => ({ id: s.id, nombre: s.nombre }));
-  const analyteOptions: AnalyteOption[] = (analytes ?? [])
-    .filter((a) => a.organization_id === orgId)
-    .map((a) => ({ id: a.id, nombre: a.nombre, unidad: a.unidad }));
+  const analyteOptions: AnalyteOption[] = (analytes ?? []).map((a) => ({
+    id: a.id,
+    nombre: a.organization_id ? a.nombre : `${a.nombre} (global)`,
+    unidad: a.unidad,
+  }));
 
   return (
     <>
       <PageHeader
         title="Catálogo de laboratorio"
-        description="Estudios, analitos y categorías. Las plantillas globales son de solo lectura; crea las propias de tu organización."
+        description="Estudios, analitos y categorías. Las plantillas globales son de solo lectura; adóptalas o crea las propias de tu organización."
       >
         {canEdit && (
           <>
@@ -95,7 +135,7 @@ export default async function CatalogoPage() {
                     <TableHead>Analitos</TableHead>
                     <TableHead>Precio</TableHead>
                     <TableHead>Origen</TableHead>
-                    {canEdit && <TableHead className="text-right">Editar</TableHead>}
+                    {canEdit && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -104,6 +144,14 @@ export default async function CatalogoPage() {
                     const composition = (s.study_analytes as unknown as { analyte_id: string }[]) ?? [];
                     const prices = (s.study_prices as unknown as { precio: number; sede_id: string | null }[]) ?? [];
                     const base = prices.find((p) => p.sede_id === null)?.precio ?? 0;
+                    const priceBySede = new Map(
+                      prices.filter((p) => p.sede_id !== null).map((p) => [p.sede_id as string, p.precio])
+                    );
+                    const sedePrices = priceSedes.map((se) => ({
+                      sedeId: se.id,
+                      nombre: se.nombre,
+                      precio: priceBySede.get(se.id) ?? null,
+                    }));
                     return (
                       <TableRow key={s.id}>
                         <TableCell className="text-sm">{s.codigo}</TableCell>
@@ -116,7 +164,7 @@ export default async function CatalogoPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {(s.test_categories as unknown as { nombre: string } | null)?.nombre ?? "—"}
+                          <CategoryChip category={s.test_categories as unknown as JoinedCategory} />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{composition.length}</TableCell>
                         <TableCell className="text-sm">{formatMoney(base)}</TableCell>
@@ -127,26 +175,42 @@ export default async function CatalogoPage() {
                         </TableCell>
                         {canEdit && (
                           <TableCell className="text-right">
-                            {own ? (
-                              <StudyDialog
-                                categories={categoryOptions}
-                                specimenTypes={specimenOptions}
-                                analytes={analyteOptions}
-                                study={{
-                                  id: s.id,
-                                  codigo: s.codigo,
-                                  nombre: s.nombre,
-                                  category_id: s.category_id,
-                                  specimen_type_id: s.specimen_type_id,
-                                  tiempo_entrega_h: s.tiempo_entrega_h,
-                                  requiere_ayuno: s.requiere_ayuno,
-                                  analyteIds: composition.map((c) => c.analyte_id),
-                                  precio: base,
-                                }}
-                              />
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
+                            <div className="flex items-center justify-end gap-1">
+                              {canEditPrices && (
+                                <StudyPricesDialog
+                                  study={{ id: s.id, codigo: s.codigo, nombre: s.nombre, esGlobal: !own }}
+                                  basePrice={base}
+                                  canEditBase={isOrgAdmin && own}
+                                  isOrgAdmin={isOrgAdmin}
+                                  sedePrices={sedePrices}
+                                />
+                              )}
+                              {own && (
+                                <>
+                                  <StudyDialog
+                                    categories={categoryOptions}
+                                    specimenTypes={specimenOptions}
+                                    analytes={analyteOptions}
+                                    study={{
+                                      id: s.id,
+                                      codigo: s.codigo,
+                                      nombre: s.nombre,
+                                      category_id: s.category_id,
+                                      specimen_type_id: s.specimen_type_id,
+                                      tiempo_entrega_h: s.tiempo_entrega_h,
+                                      requiere_ayuno: s.requiere_ayuno,
+                                      analyteIds: composition.map((c) => c.analyte_id),
+                                      precio: base,
+                                    }}
+                                  />
+                                  <DeleteCatalogButton kind="study" id={s.id} nombre={s.nombre} />
+                                </>
+                              )}
+                              {!own && isOrgAdmin && <AdoptStudyButton studyId={s.id} />}
+                              {!own && !isOrgAdmin && !canEditPrices && (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -166,11 +230,12 @@ export default async function CatalogoPage() {
                   <TableRow>
                     <TableHead>Código</TableHead>
                     <TableHead>Analito</TableHead>
+                    <TableHead>Categoría</TableHead>
                     <TableHead>Unidad</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Método</TableHead>
                     <TableHead>Origen</TableHead>
-                    {canEdit && <TableHead className="text-right">Editar</TableHead>}
+                    {canEdit && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -180,6 +245,9 @@ export default async function CatalogoPage() {
                       <TableRow key={a.id}>
                         <TableCell className="text-sm">{a.codigo}</TableCell>
                         <TableCell className="font-medium">{a.nombre}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <CategoryChip category={a.test_categories as unknown as JoinedCategory} />
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.unidad ?? "—"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.value_type}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.metodo ?? "—"}</TableCell>
@@ -191,18 +259,21 @@ export default async function CatalogoPage() {
                         {canEdit && (
                           <TableCell className="text-right">
                             {own ? (
-                              <AnalyteDialog
-                                categories={categoryOptions}
-                                analyte={{
-                                  id: a.id,
-                                  codigo: a.codigo,
-                                  nombre: a.nombre,
-                                  unidad: a.unidad,
-                                  metodo: a.metodo,
-                                  value_type: a.value_type,
-                                  category_id: a.category_id,
-                                }}
-                              />
+                              <div className="flex items-center justify-end gap-1">
+                                <AnalyteDialog
+                                  categories={categoryOptions}
+                                  analyte={{
+                                    id: a.id,
+                                    codigo: a.codigo,
+                                    nombre: a.nombre,
+                                    unidad: a.unidad,
+                                    metodo: a.metodo,
+                                    value_type: a.value_type,
+                                    category_id: a.category_id,
+                                  }}
+                                />
+                                <DeleteCatalogButton kind="analyte" id={a.id} nombre={a.nombre} />
+                              </div>
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
@@ -226,20 +297,42 @@ export default async function CatalogoPage() {
                     <TableHead>Código</TableHead>
                     <TableHead>Categoría</TableHead>
                     <TableHead>Origen</TableHead>
+                    {canEdit && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {categories?.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="text-sm">{c.codigo}</TableCell>
-                      <TableCell className="font-medium">{c.nombre}</TableCell>
-                      <TableCell>
-                        <Badge className={c.organization_id ? "bg-primary/10 text-primary" : "bg-muted text-foreground"}>
-                          {c.organization_id ? "Propio" : "Global"}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {categories?.map((c) => {
+                    const own = c.organization_id === orgId;
+                    return (
+                      <TableRow key={c.id}>
+                        <TableCell className="text-sm">{c.codigo}</TableCell>
+                        <TableCell className="font-medium">
+                          <CategoryChip
+                            category={{ nombre: c.nombre, codigo: c.codigo, color: c.color }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={own ? "bg-primary/10 text-primary" : "bg-muted text-foreground"}>
+                            {own ? "Propio" : "Global"}
+                          </Badge>
+                        </TableCell>
+                        {canEdit && (
+                          <TableCell className="text-right">
+                            {own ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <CategoryDialog
+                                  category={{ id: c.id, codigo: c.codigo, nombre: c.nombre, color: c.color }}
+                                />
+                                <DeleteCatalogButton kind="category" id={c.id} nombre={c.nombre} />
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
