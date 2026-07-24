@@ -9,7 +9,7 @@ export default function LoginPage() {
   return (
     // El login siempre usa el tema claro: "theme-light" redeclara las variables
     // de color para que no le afecte el theme (claro/oscuro) del resto de la app.
-    <div className="theme-light relative min-h-screen overflow-hidden bg-[#547fb4]">
+    <div className="theme-light relative min-h-screen overflow-hidden bg-[#38608a]">
       {/* Fondo abstracto azul-verde: blobs orgánicos de teal (verde) y azul
           clínico que se funden sobre una base diagonal azul→teal. Registro
           limpio y formal, con la mezcla fluida de la paleta de marca. */}
@@ -18,7 +18,7 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 80% 90% at 10% 18%, #2f9a8e 0%, rgba(47,154,142,0) 55%), radial-gradient(ellipse 85% 95% at 92% 88%, #2c66a6 0%, rgba(44,102,166,0) 58%), radial-gradient(ellipse 65% 70% at 82% 12%, #3f93bf 0%, rgba(63,147,191,0) 52%), radial-gradient(ellipse 60% 65% at 30% 95%, #2f8f86 0%, rgba(47,143,134,0) 55%), linear-gradient(145deg, #3d84ac 0%, #35908a 100%)",
+            "radial-gradient(ellipse 80% 90% at 10% 18%, #2f9a8e 0%, rgba(47,154,142,0) 55%), radial-gradient(ellipse 85% 95% at 92% 88%, #245683 0%, rgba(36,86,131,0) 58%), radial-gradient(ellipse 65% 70% at 82% 12%, #327ea3 0%, rgba(50,126,163,0) 52%), radial-gradient(ellipse 60% 65% at 30% 95%, #2f8f86 0%, rgba(47,143,134,0) 55%), linear-gradient(145deg, #285d80 0%, #2c7d76 100%)",
         }}
       />
       {/* Rejilla de circuito hexagonal: panal de líneas finas (SVG teselado)

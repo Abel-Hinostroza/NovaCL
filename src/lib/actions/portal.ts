@@ -79,7 +79,7 @@ export async function linkPortalAction(
   if (!ok) {
     return {
       error:
-        "No encontramos resultados con esos datos. Verifica tu documento y fecha de nacimiento, o consulta en tu laboratorio.",
+        "No encontramos una atención registrada con esos datos. Si ya te atendiste, verifica tu número de documento y fecha de nacimiento; si nunca te has atendido en el laboratorio, no cuentas con resultados para consultar. Ante cualquier duda, comunícate con tu laboratorio.",
     };
   }
 

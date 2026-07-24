@@ -103,8 +103,10 @@ create index if not exists "LIS_idx_cie10_cod_trgm" on public."LIS_cie10"
 comment on table public."LIS_cie10" is
   'Catálogo CIE-10 (referencia global). Búsqueda por código o descripción vía app.search_cie10().';
 
--- Búsqueda tolerante (código exacto/prefijo o descripción por trigrama)
-create or replace function app.search_cie10(p_q text, p_limit int default 20)
+-- Búsqueda tolerante (código exacto/prefijo o descripción por trigrama).
+-- Vive en `public` para que PostgREST/supabase.rpc() la expongan (el schema
+-- `app` no está publicado).
+create or replace function public.search_cie10(p_q text, p_limit int default 20)
 returns setof public."LIS_cie10"
 language sql stable
 as $$
@@ -121,7 +123,7 @@ as $$
     codigo
   limit greatest(1, least(p_limit, 50));
 $$;
-grant execute on function app.search_cie10(text, int) to authenticated;
+grant execute on function public.search_cie10(text, int) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────
 -- 2 · Perfil clínico (1 fila por paciente)
