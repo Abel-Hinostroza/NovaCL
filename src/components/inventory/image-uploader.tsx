@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { removeInventoryImages } from "@/components/inventory/image-storage";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -30,11 +31,15 @@ export function ImageUploader({
   value,
   onChange,
   disabled,
+  initialImages = [],
 }: {
   orgId: string;
   value: string[];
   onChange: (urls: string[]) => void;
   disabled?: boolean;
+  /** Imágenes ya persistidas al abrir. Las que NO estén aquí son subidas de
+   *  esta sesión: al quitarlas se borran del bucket para no dejar huérfanos. */
+  initialImages?: string[];
 }) {
   const supabase = createClient();
   const [uploading, setUploading] = useState(0);
@@ -109,6 +114,11 @@ export function ImageUploader({
 
   function quitar(url: string) {
     onChange(value.filter((u) => u !== url));
+    // Subida de esta sesión que nunca se persistió: bórrala del bucket ya
+    // mismo. Las imágenes previas se limpian recién al guardar la edición.
+    if (!initialImages.includes(url)) {
+      void removeInventoryImages([url]);
+    }
   }
 
   function hacerPrincipal(url: string) {

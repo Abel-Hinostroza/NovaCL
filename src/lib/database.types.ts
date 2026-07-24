@@ -101,6 +101,47 @@ export type InventoryMovementType =
   | "merma"
   | "transferencia";
 
+// Historia clínica (0028)
+export type ConditionKind =
+  | "personal"
+  | "familiar"
+  | "quirurgico"
+  | "congenito"
+  | "no_patologico"
+  | "otro";
+export type ConditionStatus = "activo" | "cronico" | "resuelto";
+export type AllergyType = "farmaco" | "alimento" | "ambiental" | "otro";
+export type AllergySeverity = "leve" | "moderada" | "grave" | "anafilaxia";
+export type MedRoute =
+  | "oral"
+  | "intravenosa"
+  | "intramuscular"
+  | "subcutanea"
+  | "topica"
+  | "inhalatoria"
+  | "oftalmica"
+  | "otica"
+  | "rectal"
+  | "otra";
+export type MedStatus = "activo" | "suspendido" | "finalizado";
+export type ClinicalNoteKind =
+  | "anamnesis"
+  | "evolucion"
+  | "interconsulta"
+  | "indicaciones"
+  | "procedimiento"
+  | "otro";
+export type ClinicalNoteStatus = "borrador" | "firmada" | "anulada";
+export type AttachmentKind =
+  | "informe_externo"
+  | "laboratorio_externo"
+  | "imagen"
+  | "receta"
+  | "consentimiento"
+  | "identidad"
+  | "renhice"
+  | "otro";
+
 // ─────────────────────────────────────────────────────────────
 // Helper para declarar tablas de forma compacta
 // ─────────────────────────────────────────────────────────────
@@ -279,6 +320,157 @@ export interface Database {
         email: string | null;
         externo: boolean;
         activo: boolean;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_cie10: Table<{
+        codigo: string;
+        descripcion: string;
+        categoria: string | null;
+        capitulo: string | null;
+        activo: boolean;
+      }>;
+      LIS_clinical_profile: Table<{
+        patient_id: string;
+        organization_id: string;
+        estado_civil: string | null;
+        ocupacion: string | null;
+        grado_instruccion: string | null;
+        lugar_nacimiento: string | null;
+        procedencia: string | null;
+        factor_rh: string | null;
+        donante_organos: boolean | null;
+        go_menarquia_edad: number | null;
+        go_fur: string | null;
+        go_gestaciones: number | null;
+        go_partos: number | null;
+        go_abortos: number | null;
+        go_cesareas: number | null;
+        go_anticonceptivo: string | null;
+        go_notas: string | null;
+        habito_tabaco: string | null;
+        habito_alcohol: string | null;
+        habito_drogas: string | null;
+        habito_actividad: string | null;
+        consent_datos: boolean;
+        consent_datos_at: string | null;
+        consent_version: string | null;
+        notas_generales: string | null;
+        updated_por: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_clinical_conditions: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        kind: ConditionKind;
+        cie10_codigo: string | null;
+        descripcion: string;
+        status: ConditionStatus;
+        fecha_inicio: string | null;
+        fecha_resolucion: string | null;
+        parentesco: string | null;
+        notas: string | null;
+        profesional_id: string | null;
+        registrado_por: string | null;
+        anulado: boolean;
+        anulado_motivo: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_allergies: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        tipo: AllergyType;
+        agente: string;
+        reaccion: string | null;
+        severidad: AllergySeverity | null;
+        activa: boolean;
+        notas: string | null;
+        profesional_id: string | null;
+        registrado_por: string | null;
+        anulado: boolean;
+        anulado_motivo: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_medications: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        farmaco: string;
+        dosis: string | null;
+        via: MedRoute | null;
+        frecuencia: string | null;
+        indicado_por: string | null;
+        profesional_id: string | null;
+        status: MedStatus;
+        fecha_inicio: string | null;
+        fecha_fin: string | null;
+        notas: string | null;
+        registrado_por: string | null;
+        anulado: boolean;
+        anulado_motivo: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_vitals: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        tomado_at: string;
+        pa_sistolica: number | null;
+        pa_diastolica: number | null;
+        fc: number | null;
+        fr: number | null;
+        temperatura: number | null;
+        sato2: number | null;
+        peso_kg: number | null;
+        talla_cm: number | null;
+        imc: number | null;
+        perimetro_abdominal: number | null;
+        glucosa_capilar: number | null;
+        notas: string | null;
+        profesional_id: string | null;
+        tomado_por: string | null;
+        anulado: boolean;
+        anulado_motivo: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_clinical_notes: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        order_id: string | null;
+        kind: ClinicalNoteKind;
+        titulo: string | null;
+        cuerpo: string;
+        status: ClinicalNoteStatus;
+        profesional_id: string | null;
+        firmado_at: string | null;
+        registrado_por: string | null;
+        anulado_motivo: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      LIS_clinical_attachments: Table<{
+        id: string;
+        organization_id: string;
+        patient_id: string;
+        order_id: string | null;
+        kind: AttachmentKind;
+        titulo: string;
+        descripcion: string | null;
+        storage_path: string | null;
+        url_externa: string | null;
+        mime: string | null;
+        size_bytes: number | null;
+        subido_por: string | null;
+        anulado: boolean;
+        anulado_motivo: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -731,6 +923,10 @@ export interface Database {
         Args: { p_desde: string; p_hasta: string };
         Returns: { status: InvoiceStatus; cantidad: number; monto: number }[];
       };
+      search_cie10: {
+        Args: { p_q: string; p_limit?: number };
+        Returns: Database["public"]["Tables"]["LIS_cie10"]["Row"][];
+      };
     };
     Enums: {
       role: Role;
@@ -741,6 +937,15 @@ export interface Database {
       result_status: ResultStatus;
       result_flag: ResultFlag;
       appointment_status: AppointmentStatus;
+      condition_kind: ConditionKind;
+      condition_status: ConditionStatus;
+      allergy_type: AllergyType;
+      allergy_severity: AllergySeverity;
+      med_route: MedRoute;
+      med_status: MedStatus;
+      clinical_note_kind: ClinicalNoteKind;
+      clinical_note_status: ClinicalNoteStatus;
+      attachment_kind: AttachmentKind;
     };
     CompositeTypes: {
       [_ in never]: never;

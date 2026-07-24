@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Image from "next/image";
-import { Lock } from "lucide-react";
+import Link from "next/link";
+import { Lock, FileText, ArrowRight } from "lucide-react";
 import { LoginForm } from "./login-form";
 import { LogoParticles } from "./logo-particles";
 
@@ -215,10 +216,32 @@ export default function LoginPage() {
                     <LoginForm />
                   </Suspense>
 
-                  <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-white/75 [text-shadow:0_1px_2px_rgb(0_0_0/0.6)]">
-                    <Lock className="h-3 w-3" />
-                    Acceso restringido · Uso profesional
-                  </p>
+                  <div className="space-y-4">
+                    <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-white/75 [text-shadow:0_1px_2px_rgb(0_0_0/0.6)]">
+                      <Lock className="h-3 w-3" />
+                      Acceso restringido · Uso profesional
+                    </p>
+
+                    {/* Acceso secundario para pacientes: separado del login del
+                        staff por una línea con rótulo, para que no se confunda
+                        con las credenciales profesionales. Lleva al portal
+                        público de resultados (DNI + fecha de nacimiento). */}
+                    <div className="flex items-center gap-3" aria-hidden>
+                      <span className="h-px flex-1 bg-white/15" />
+                      <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
+                        ¿Eres paciente?
+                      </span>
+                      <span className="h-px flex-1 bg-white/15" />
+                    </div>
+                    <Link
+                      href="/portal"
+                      className="group flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/90 transition-all duration-200 hover:border-white/35 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                    >
+                      <FileText className="h-4 w-4 text-cyan-300" />
+                      Consultar mis resultados
+                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>

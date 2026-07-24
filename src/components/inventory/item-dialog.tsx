@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Plus, Pencil } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/inventory/image-uploader";
+import { removeInventoryImages } from "@/components/inventory/image-storage";
 import { saveItemAction } from "@/lib/actions/inventory";
 import { INVENTORY_TYPE_LABELS } from "@/lib/constants";
 import type { InventoryItemType, Tables } from "@/lib/database.types";
@@ -48,6 +49,25 @@ export function ItemDialog({ orgId, item }: { orgId: string; item?: Item }) {
   const [imagenes, setImagenes] = useState<string[]>(
     (item?.imagenes as string[] | null) ?? []
   );
+  // Baseline de imágenes persistidas. Se actualiza tras guardar para que la
+  // limpieza compare siempre contra lo que realmente está en la base.
+  const baselineImgs = useRef<string[]>(
+    (item?.imagenes as string[] | null) ?? []
+  );
+
+  /** Cierra el diálogo y, si no se guardó, borra del bucket las imágenes que
+   *  se subieron en esta sesión pero nunca llegaron a persistirse. */
+  function descartar() {
+    const huerfanas = imagenes.filter((u) => !baselineImgs.current.includes(u));
+    if (huerfanas.length > 0) void removeInventoryImages(huerfanas);
+    setImagenes(baselineImgs.current);
+    setOpen(false);
+  }
+
+  function onOpenChange(next: boolean) {
+    if (!next) descartar();
+    else setOpen(true);
+  }
 
   function guardar() {
     startTransition(async () => {
@@ -67,6 +87,13 @@ export function ItemDialog({ orgId, item }: { orgId: string; item?: Item }) {
         imagenes,
       });
       if (res.ok) {
+        // Imágenes previas que el usuario quitó en esta edición: ya no las
+        // referencia ningún artículo, bórralas del bucket.
+        const eliminadas = baselineImgs.current.filter(
+          (u) => !imagenes.includes(u)
+        );
+        if (eliminadas.length > 0) void removeInventoryImages(eliminadas);
+        baselineImgs.current = imagenes;
         toast.success(item ? "Artículo actualizado." : "Artículo creado.");
         setOpen(false);
         router.refresh();
@@ -77,7 +104,7 @@ export function ItemDialog({ orgId, item }: { orgId: string; item?: Item }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         {item ? (
           <Button variant="ghost" size="icon" aria-label="Editar">
@@ -167,12 +194,17 @@ export function ItemDialog({ orgId, item }: { orgId: string; item?: Item }) {
           </label>
           <div className="space-y-2 sm:col-span-2">
             <Label>Imágenes del artículo</Label>
-            <ImageUploader orgId={orgId} value={imagenes} onChange={setImagenes} />
+            <ImageUploader
+              orgId={orgId}
+              value={imagenes}
+              onChange={setImagenes}
+              initialImages={baselineImgs.current}
+            />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" onClick={descartar}>
             Cancelar
           </Button>
           <Button onClick={guardar} disabled={pending || !codigo.trim() || !nombre.trim()}>
